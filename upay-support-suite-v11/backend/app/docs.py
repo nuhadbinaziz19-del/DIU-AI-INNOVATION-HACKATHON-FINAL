@@ -5,7 +5,7 @@ from typing import Any
 from .ledger import LedgerError, now_ms
 
 CUSTOMER_COLLECTIONS = {"chats", "emails", "complaints", "acctreqs"}
-STAFF_FIELDS = {"status", "replies", "note", "decidedAt", "pri", "team"}
+STAFF_FIELDS = {"status", "replies", "note", "decidedAt", "pri", "team", "gem", "gemAt"}
 
 
 def _row(c, collection, id_):
@@ -42,6 +42,17 @@ def put_raw(db, collection: str, id_: str, data: dict, owner_uid: str | None = N
     with db.tx() as c:
         c.run("SELECT 1 AS x FROM docs WHERE collection=%s AND id=%s FOR UPDATE", collection, id_)
         _upsert(c, collection, id_, owner_uid, data)
+
+
+def patch(db, collection: str, id_: str, fn) -> dict:
+    """Atomic read-modify-write of one document (row locked). fn(dict) -> dict. Used for staff-side changes that must not lose a customer message."""
+    with db.tx() as c:
+        c.run("SELECT 1 AS x FROM docs WHERE collection=%s AND id=%s FOR UPDATE", collection, id_)
+        old = _row(c, collection, id_)
+        if not old:
+            raise LedgerError("not_found", "Not found")
+        new = fn(json.loads(json.dumps(old["data"])))
+        return _upsert(c, collection, id_, old["owner_uid"], new)
 
 
 def get(db, collection: str, id_: str) -> dict | None:
@@ -92,6 +103,11 @@ def customer_put(db, uid: str, collection: str, id_: str, data: dict[str, Any]) 
                 new = {**{k: v for k, v in data.items() if k not in STAFF_FIELDS}, "uid": uid, "status": "pending", "note": ""}
         else:  # chats: the customer's own conversation thread
             new = {**data, "uid": uid}
+            for k in ("gem", "gemAt"):            # the Gemini switch belongs to the agent: the customer's copy of the chat can never change it
+                if old and k in old["data"]:
+                    new[k] = old["data"][k]
+                else:
+                    new.pop(k, None)
         return _upsert(c, collection, id_, uid, new)
 
 

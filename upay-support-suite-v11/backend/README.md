@@ -68,3 +68,10 @@ Test Postgres helper: `tests/pg_start.sh`.
 - Set `GEMINI_API_KEY` (from Google AI Studio; NOT the Cloud project ID) and optionally `GEMINI_MODEL` (default `gemini-2.5-flash`) in `backend/.env`. Empty key = feature off.
 - Admin console > Live chat > "Ask Gemini for a draft" calls `POST /api/admin/ai/draft` (admin key). PINs, OTPs, phone numbers and long digit strings are masked before the text leaves the server. The result only fills the reply box: an agent reads, edits and sends it. Nothing is stored, and the key never reaches the browser.
 - Needs the backend (not the browser-only demo). Tests: `tests/test_llm.py` (no network, fake transport).
+
+## Gemini live-chat auto-reply (per conversation)
+- Admin console > Live chat > open a conversation > press **Gemini auto-reply: OFF/ON** (`POST /api/admin/chats/{uid}/gem` with `{"on": true|false}`).
+- While it is ON, every new customer message in that chat is answered by Gemini in a background thread (the customer's request is not slowed down). Turning it ON also answers a message that is already waiting. The agent can still type a reply at any time, and pressing the switch again (or **Escalate**) turns it OFF.
+- Safety: the customer cannot change the switch (the server keeps the stored value); fraud / scam reports are never auto-answered (they stay for the fraud team); PINs, OTPs, phone numbers and long numbers are masked before text goes to Gemini; an answer is dropped if an agent replied, the switch went OFF or a newer message arrived while Gemini was thinking; if Gemini fails, a line is added to the chat's audit trail so the agent knows to reply; at most 20 Gemini answers per chat per minute.
+- Needs `GEMINI_API_KEY` on the server and the backend mode (`window.UPAY_API=""`). In the browser-only demo the switch is disabled because the key must never be in the browser.
+- Tests (no network, no PostgreSQL): `python3 -m unittest tests.test_gemchat`

@@ -230,3 +230,5 @@ body.admin .ar2{margin:10px 0}body.admin .ar2 .l{display:flex;justify-content:sp
 .c1{background:var(--b)}.c2{background:var(--y)}.c3{background:var(--bad)}
 .dvl{display:flex;gap:3px;font-size:11px;color:var(--mute);overflow:hidden}.dvl span{flex:1;min-width:3px;white-space:nowrap;overflow:visible}
 .lg{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 4px 0 12px}.lg:first-child{margin-left:0}
+.gemsw{display:flex;align-items:center;flex-wrap:wrap;margin:6px 0 10px}
+.gemsw .btn{margin:0}

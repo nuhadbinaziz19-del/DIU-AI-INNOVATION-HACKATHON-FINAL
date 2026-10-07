@@ -510,9 +510,11 @@ function initCustomer(){
         const a=analyze(text,FQ),now=Date.now(),old=chat||{msgs:[],audit:[]};
         const msgs=[...old.msgs,{f:'cu',t:a.shown,ts:now}];
         const audit=[...(old.audit||[]),'Received '+ts(),'Redacted and analyzed','Matched policy: '+a.policy,'Decision: '+a.dec.replace('_',' ')];
-        if(a.dec==='auto_sent'){msgs.push({f:'ai',t:a.reply,ts:now+1});audit.push('Reply sent automatically')}
+        const gemOn=!!old.gem&&a.dec!=='escalated'; /* agent switched Gemini on: the server answers, so no canned reply and no "sent to team" note */
+        if(gemOn){audit.push('Waiting for Gemini reply')}
+        else if(a.dec==='auto_sent'){msgs.push({f:'ai',t:a.reply,ts:now+1});audit.push('Reply sent automatically')}
         else msgs.push({f:'sys',t:'আপনার বার্তা আমাদের টিমের কাছে পাঠানো হয়েছে। শীঘ্রই উত্তর পাবেন।',ts:now+1});
-        await sync.chats.doc(uid).set({uid,name:$('#uname').textContent,status:a.dec,last:now+1,unreadAdmin:(old.unreadAdmin||0)+1,unreadCust:0,a,draft:a.reply,msgs,audit});
+        await sync.chats.doc(uid).set({uid,name:$('#uname').textContent,status:gemOn?'gem':a.dec,...(old.gem?{gem:true,gemAt:old.gemAt||0}:{}),last:now+1,unreadAdmin:(old.unreadAdmin||0)+1,unreadCust:0,a,draft:a.reply,msgs,audit});
       };
       $('#chSend').onclick=send;$('#chIn').onkeydown=e=>{if(e.key==='Enter')send()};
     }

@@ -2,7 +2,7 @@
 /* ---------- Admin console ---------- */
 function initAdmin(){
   const root=$('#root');
-  const ST={auto_sent:['Auto-replied','ok'],needs_review:['Needs review','warn'],escalated:['Escalated','bad'],agent_sent:['Sent by agent','info']};
+  const ST={auto_sent:['Auto-replied','ok'],needs_review:['Needs review','warn'],escalated:['Escalated','bad'],agent_sent:['Sent by agent','info'],gem:['Gemini replying','ok']};
   const TABS=[['ana','Analytics'],['chat','Live chat'],['mail','Emails'],['comp','Complaints'],['cus','Customers'],['txn','Transactions'],['faq','My FAQ'],['pol','Reply policies'],['stu','Student accounts'],['ann','Announcement']];
   let tab='ana',sel=null,W=[],T=[],C=[],M=[],X=[],selM=null,selX=null,faqs=[],note='',modal=null,msg='',amsg='',cols,cfg,fqd,stuDoc,AR=[],selA=null,stu=null;const ui={};
   const uv=(k,d)=>ui[k]===undefined?d:ui[k];
@@ -14,9 +14,10 @@ function initAdmin(){
   function vChat(){
     const L=C.slice().sort((a,b)=>b.last-a.last);if(!sel&&L[0])sel=L[0].id;
     const c=chatOf(sel),a=c&&c.a;
-    const list=`<div class="card"><h3>Conversations</h3><p class="lead">Safe questions get an instant AI reply. The rest wait here for an agent.</p>${L.length?`<ul class="list">${L.map(x=>`<li tabindex="0" data-a="sel" data-id="${esc(x.id)}" aria-selected="${x.id===sel}"><span class="tag ${st(x.status)[1]}">${st(x.status)[0]}</span>${x.unreadAdmin?`<span class="tag bad">${x.unreadAdmin} new</span>`:''}<b>${esc(x.name)}</b><small>${esc(en((x.msgs[x.msgs.length-1]||{}).t||'').slice(0,60))}</small></li>`).join('')}</ul>`:'<p class="lead">No conversations yet. Open the customer app and send a message.</p>'}</div>`;
+    const list=`<div class="card"><h3>Conversations</h3><p class="lead">Safe questions get an instant AI reply. The rest wait here for an agent. Press the Gemini switch inside a chat to let Gemini answer it.</p>${L.length?`<ul class="list">${L.map(x=>`<li tabindex="0" data-a="sel" data-id="${esc(x.id)}" aria-selected="${x.id===sel}"><span class="tag ${st(x.status)[1]}">${st(x.status)[0]}</span>${x.unreadAdmin?`<span class="tag bad">${x.unreadAdmin} new</span>`:''}<b>${esc(x.name)}</b><small>${esc(en((x.msgs[x.msgs.length-1]||{}).t||'').slice(0,60))}</small></li>`).join('')}</ul>`:'<p class="lead">No conversations yet. Open the customer app and send a message.</p>'}</div>`;
     const thr=c?`<div class="card"><h3>${esc(c.name)} <small style="color:var(--mute);font-weight:400">${fd(c.last)}</small></h3>
-      <div class="thr" style="max-height:340px;overflow:auto">${c.msgs.map(m=>m.f==='sys'?`<div class="note">${esc(en(m.t))}</div>`:`<div class="bub ${m.f==='cu'?'cu':'ai'}">${esc(m.t)}${m.f==='cu'?'':`<small style="display:block;opacity:.7">${m.f==='ai'?'AI assistant':'Agent'}</small>`}</div>`).join('')}</div>
+      <div class="gemsw"><button class="btn ${c.gem?'':'alt'}" data-a="gemsw" role="switch" aria-checked="${!!c.gem}" ${API.on?'':'disabled title="Needs the backend (UPAY_API)"'}>🤖 Gemini auto-reply: ${ui.gemSw?'…':c.gem?'ON':'OFF'}</button><small style="color:var(--mute);margin-left:8px">${c.gem?'Gemini answers every new customer message in this chat. Press to take over.':'Press to let Gemini answer this customer by itself.'}</small></div>
+      <div class="thr" style="max-height:340px;overflow:auto">${c.msgs.map(m=>m.f==='sys'?`<div class="note">${esc(en(m.t))}</div>`:`<div class="bub ${m.f==='cu'?'cu':'ai'}">${esc(m.t)}${m.f==='cu'?'':`<small style="display:block;opacity:.7">${m.f==='ai'?(m.g?'Gemini':'AI assistant'):'Agent'}</small>`}</div>`).join('')}</div>
       <label for="rp">${c.status==='escalated'?'Holding reply (fraud team takes over)':'Reply to customer'}</label>
       <textarea id="rp" data-k="reply" rows="4">${esc(ui.reply||'')}</textarea>
       <button class="btn" data-a="send">Send reply</button>
@@ -140,9 +141,13 @@ function initAdmin(){
         try{const r=await API.post('/api/admin/ai/draft',{text:last.t,topic:(c.a&&c.a.policy)||''});ui.reply=r.draft;ui.gemMsg='Draft from '+r.model+'. Read it, edit it, then send. It was not sent to the customer.'}
         catch(e){ui.gemMsg=e.code==='ai_off'?'Gemini is not set up on the server (GEMINI_API_KEY).':e.message||'Gemini failed.'}
         ui.gemBusy=false;render()}
+      else if(a==='gemsw'){const c=chatOf(sel);if(!c||ui.gemSw)return;ui.gemSw=true;ui.gemMsg='';render();
+        try{const r=await API.post('/api/admin/chats/'+encodeURIComponent(sel)+'/gem',{on:!c.gem});ui.gemMsg=r.gem?'Gemini is now replying in this chat. You can still type your own reply any time.':'Gemini is off for this chat.'}
+        catch(e){ui.gemMsg=e.code==='ai_off'?'Gemini is not set up on the server (GEMINI_API_KEY).':e.message||'Could not change it.'}
+        ui.gemSw=false;await API.kick();render()}
       else if(a==='send'){const c=chatOf(sel),t=(ui.reply||'').trim();if(!c||!t)return;ui.reply='';
         await cols.chats.doc(sel).update({msgs:[...c.msgs,{f:'ag',t,ts:Date.now()}],status:'agent_sent',last:Date.now(),unreadCust:(c.unreadCust||0)+1,audit:[...(c.audit||[]),'Agent approved reply '+ts()]})}
-      else if(a==='esc'){const c=chatOf(sel);await cols.chats.doc(sel).update({status:'escalated',audit:[...(c.audit||[]),'Escalated to '+c.a.team+' '+ts()]})}
+      else if(a==='esc'){const c=chatOf(sel);if(c.gem&&API.on){try{await API.post('/api/admin/chats/'+encodeURIComponent(sel)+'/gem',{on:false})}catch(_){}}await cols.chats.doc(sel).update({status:'escalated',gem:false,audit:[...(c.audit||[]),'Escalated to '+c.a.team+' '+ts()]})}
       else if(a==='rsel'){if(b.dataset.v==='comp')selX=id;else selM=id;ui.rreply='';render()}
       else if(a==='rsend'){const t=(ui.rreply||'').trim();if(!t)return;const c=b.dataset.v==='comp',r=(c?X:M).find(x=>x.id===id);if(!r)return;ui.rreply='';
         await (c?cols.complaints:cols.emails).doc(id).update({replies:[...(r.replies||[]),{t,ts:Date.now()}],status:r.status==='resolved'?'resolved':'open',unreadCust:(r.unreadCust||0)+1})}

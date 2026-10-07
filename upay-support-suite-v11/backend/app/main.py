@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from . import auth, config as C, docs, ledger as L, llm, prefs, providers, sms
+from . import auth, config as C, docs, gemchat, ledger as L, llm, prefs, providers, sms
 from .ledger import LedgerError
 
 log = logging.getLogger("upay")
@@ -47,6 +47,10 @@ class LoginIn(BaseModel):
 class AiDraftIn(BaseModel):
     text: str = Field(max_length=3000)
     topic: str = Field(default="", max_length=100)
+
+
+class GemSwitchIn(BaseModel):
+    on: bool
 
 
 class OtpSendIn(BaseModel):
@@ -435,7 +439,16 @@ def create_app(db=None, start_scheduler: bool = True) -> FastAPI:
     @app.put("/api/docs/{collection}/{id_}")
     def docs_put(collection: str, id_: str, data: dict[str, Any], uid: str = Depends(me)):
         lim.hit("docs:" + uid, 60, 60)
-        return docs.customer_put(db, uid, collection, id_, data)
+        out = docs.customer_put(db, uid, collection, id_, data)
+        if collection == "chats" and llm.enabled():
+            try:
+                lim.hit("gemchat:" + uid, 20, 60)                 # at most 20 Gemini answers per chat per minute
+                gemchat.trigger(db, uid)
+            except LedgerError:
+                pass
+            except Exception:
+                log.exception("gemini trigger failed")
+        return out
 
     @app.delete("/api/docs/{collection}/{id_}")
     def docs_delete(collection: str, id_: str, uid: str = Depends(me)):
@@ -515,6 +528,14 @@ def create_app(db=None, start_scheduler: bool = True) -> FastAPI:
     def ai_draft(b: AiDraftIn, _: bool = Depends(admin)):
         lim.hit("ai", 30, 60)
         return llm.draft_reply(b.text, b.topic)
+
+    @app.post("/api/admin/chats/{uid}/gem")
+    def ai_chat_switch(uid: str, b: GemSwitchIn, _: bool = Depends(admin)):
+        """Agent switch: Gemini answers every new customer message in this chat until it is switched off."""
+        if b.on and not llm.enabled():
+            raise LedgerError("ai_off", "Gemini is not configured on the server (set GEMINI_API_KEY)")
+        d = gemchat.set_gem(db, uid, b.on)
+        return {"gem": bool(d.get("gem"))}
 
     # ---------------- serve the web app from the same origin (no CORS needed): UPAY_STATIC_DIR, default ../upay-support-suite
     static = os.getenv("UPAY_STATIC_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "upay-support-suite"))
