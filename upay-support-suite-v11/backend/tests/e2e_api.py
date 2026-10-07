@@ -302,7 +302,7 @@ if __name__ == "__main__":
     fails = 0
     requests.get(BASE + "/api/health").raise_for_status()
     with sync_playwright() as pw:
-        b = pw.chromium.launch(executable_path="/opt/pw-browsers/chromium", args=["--no-sandbox"])
+        b = pw.chromium.launch(args=["--no-sandbox"], **({"executable_path": os.environ["CHROMIUM"]} if os.environ.get("CHROMIUM") else {}))
         for t in TESTS:
             if only and t.__name__ not in only:
                 continue

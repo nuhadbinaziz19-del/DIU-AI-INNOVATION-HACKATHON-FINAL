@@ -1,6 +1,7 @@
 /* api.js - talks to the FastAPI + PostgreSQL backend.
    Backend mode is ON when config.js sets window.UPAY_API to a string ("" = same origin). With window.UPAY_API=null the app
    keeps using browser storage (offline demo). In backend mode the server decides fees, limits, PIN, student status and balances. */
+const DEMO=window.UPAY_DEMO!==false; /* false only when the server runs with UPAY_DEMO_MODE=0 */
 const API={on:typeof window.UPAY_API==='string',base:typeof window.UPAY_API==='string'?window.UPAY_API:'',token:null,adminKey:null};
 const KINDS={send:'সেন্ড মানি',receive:'রিসিভ মানি',cashout:'ক্যাশ আউট',recharge:'মোবাইল রিচার্জ',bill:'পে বিল',payment:'মেক পেমেন্ট',fund:'ফান্ড ট্রান্সফার',add:'অ্যাড মানি',split:'বিল স্প্লিট',auto_send:'অটো সেন্ড মানি',admin:'Admin adjustment'};
 const SERVICE_OF={'সেন্ড মানি':'send','মোবাইল রিচার্জ':'recharge','ক্যাশ আউট':'cashout','পে বিল':'bill','মেক পেমেন্ট':'payment','ফান্ড ট্রান্সফার':'fund'};
@@ -25,13 +26,19 @@ function apiMsg(e){
    limit_daily:['দৈনিক লিমিট পার হয়ে যাবে','Daily limit would be exceeded'],limit_monthly:['মাসিক লিমিট পার হয়ে যাবে','Monthly limit would be exceeded'],
    pin_required:['আগে PIN সেট করুন','Set a PIN first'],pin_wrong:['PIN ভুল'+(d.attempts_left!==undefined?' (বাকি '+bn(d.attempts_left)+' বার)':''),'Wrong PIN'+(d.attempts_left!==undefined?' ('+d.attempts_left+' tries left)':'')],
    pin_locked:['অনেকবার ভুল PIN। '+bn(Math.ceil((d.retry_after_ms||6e4)/1000))+' সেকেন্ড পরে চেষ্টা করুন','Too many wrong PINs. Try again in '+Math.ceil((d.retry_after_ms||6e4)/1000)+' s'],
-   bad_pin_format:['৪ সংখ্যার PIN দিন','Enter a 4-digit PIN'],recipient_not_found:['এই নম্বর upay-তে পাওয়া যায়নি','This number is not on upay'],
+   bad_pin_format:['৪ সংখ্যার PIN দিন','Enter a 4-digit PIN'],recipient_not_found:['এই নম্বর upay 2.0-তে পাওয়া যায়নি','This number is not on upay'],
    self_send:['নিজের নম্বরে পাঠানো যাবে না','You cannot send to your own number'],not_student:['ভেরিফাইড স্টুডেন্ট অ্যাকাউন্ট লাগবে','A verified student account is needed'],
    bucket_not_found:['এই ক্যাটাগরি পাওয়া যায়নি','Bucket not found'],undo_expired:['বাতিল করার সময় শেষ','The cancel window has closed'],
    undo_limit:['আজ আর বাতিল করা যাবে না। সমস্যা হলে সাপোর্টে জানান','Cancel limit reached for today. Please contact support'],
    recipient_spent:['প্রাপক টাকা খরচ করে ফেলেছেন, বাতিল সম্ভব নয়','Recipient already spent it, cannot cancel'],already_undone:['আগেই বাতিল হয়েছে','Already cancelled'],
    bad_amount:['সঠিক পরিমাণ দিন','Enter a valid amount'],bad_phone:['সঠিক মোবাইল নম্বর দিন','Enter a valid mobile number'],rate_limited:['একটু পরে চেষ্টা করুন','Too many requests, slow down'],
-   unauthorized:['আবার সাইন ইন করুন','Please sign in again'],network:['সার্ভারের সাথে যোগাযোগ হচ্ছে না','Cannot reach the server'],conflict:['এখন সম্ভব নয়, আবার চেষ্টা করুন','Not possible right now, try again']}[c];
+   unauthorized:['আবার সাইন ইন করুন','Please sign in again'],network:['সার্ভারের সাথে যোগাযোগ হচ্ছে না','Cannot reach the server'],conflict:['এখন সম্ভব নয়, আবার চেষ্টা করুন','Not possible right now, try again'],
+   provider_failed:['এখন সম্পন্ন করা যাচ্ছে না, আপনার টাকা কাটা হয়নি','Could not complete this right now. You were not charged'],
+   bad_account:['অ্যাকাউন্ট / মিটার নম্বর ৬ থেকে ২০ অক্ষর বা সংখ্যার হতে হবে','Account / meter number must be 6 to 20 letters or digits'],
+   bad_referral:['রেফার কোড ঠিক নেই','Referral code is not valid'],
+   otp_invalid:['কোড ভুল বা মেয়াদ শেষ'+(d.attempts_left!==undefined?' (বাকি '+bn(d.attempts_left)+' বার)':''),'Wrong or expired code'+(d.attempts_left!==undefined?' ('+d.attempts_left+' tries left)':'')],
+   otp_locked:['অনেকবার ভুল কোড। নতুন কোড নিন','Too many wrong codes. Ask for a new one'],
+   otp_required:['ফোনে পাঠানো কোড দিন','Enter the code sent to your phone']}[c];
   if(c==='recipient_not_found'&&d.message&&/:\s*\d/.test(d.message))return L('নম্বর পাওয়া যায়নি: ','Number not found: ')+d.message.split(':').pop().trim();
   return m?L(m[0],m[1]):(e&&e.message)||L('সমস্যা হয়েছে, আবার চেষ্টা করুন','Something went wrong. Please try again')}
 

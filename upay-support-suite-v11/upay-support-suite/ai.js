@@ -11,8 +11,8 @@ wrong_number:{label:"Money sent to wrong number",auto:0,team:"Dispute Desk",pri:
  bn:e=>`আমরা দুঃখিত। সম্পন্ন হওয়া লেনদেন স্বয়ংক্রিয়ভাবে ফেরত দেওয়া যায় না, তাই আমাদের ডিসপিউট টিম আপনার বিষয়টি দেখবে। অনুগ্রহ করে ট্রানজেকশন আইডি এবং যে নম্বরে পাঠিয়েছেন তা জানান।`},
 pin_reset:{label:"Forgot PIN",auto:1,team:"Account Support",pri:"normal",
  kw:["forgot pin","forget pin","reset pin","pin vule","pin bhule","পিন ভুলে","পিন রিসেট","পিন মনে নেই"],
- en:e=>`To reset your PIN, open the upay app, tap "Forgot PIN" and follow the steps. upay will never ask you for your PIN or OTP.`,
- bn:e=>`পিন রিসেট করতে upay অ্যাপ খুলে "পিন ভুলে গেছি" চাপুন এবং ধাপগুলো অনুসরণ করুন। upay কখনো আপনার পিন বা ওটিপি চায় না।`},
+ en:e=>`To reset your PIN, open the upay 2.0 app, tap "Forgot PIN" and follow the steps. upay 2.0 will never ask you for your PIN or OTP.`,
+ bn:e=>`পিন রিসেট করতে upay 2.0 অ্যাপ খুলে "পিন ভুলে গেছি" চাপুন এবং ধাপগুলো অনুসরণ করুন। upay 2.0 কখনো আপনার পিন বা ওটিপি চায় না।`},
 scam:{label:"Scam or fraud report",auto:0,team:"Fraud Team",pri:"urgent",esc:1,
  kw:["scam","fraud","hacked","asked for otp","otp chaise","fon korse","ওটিপি চেয়ে","প্রতারণা","ফোন করে","lottery","prize","পুরস্কার"],
  en:e=>`Thank you for reporting this. Please do not share your PIN or OTP and do not send any money. We have passed this to our fraud team and they will contact you through the app.`,
@@ -30,8 +30,8 @@ locked:{label:"Account locked or blocked",auto:0,team:"Account Support",pri:"hig
  en:e=>`We are sorry your account is locked. For your safety, a team member will verify your identity and help you. Please do not share your PIN or OTP.`,
  bn:e=>`আপনার অ্যাকাউন্ট লক হওয়ায় আমরা দুঃখিত। নিরাপত্তার জন্য একজন টিম সদস্য আপনার পরিচয় যাচাই করে সাহায্য করবেন। অনুগ্রহ করে পিন বা ওটিপি কাউকে দেবেন না।`},
 unknown:{label:"Unclear request",auto:0,team:"Support Agents",pri:"normal",kw:[],
- en:e=>`Thank you for contacting upay. A support agent will reply to you shortly.`,
- bn:e=>`upay-এর সাথে যোগাযোগ করার জন্য ধন্যবাদ। একজন সাপোর্ট এজেন্ট শীঘ্রই আপনাকে উত্তর দেবেন।`}};
+ en:e=>`Thank you for contacting upay 2.0. A support agent will reply to you shortly.`,
+ bn:e=>`upay 2.0-এর সাথে যোগাযোগ করার জন্য ধন্যবাদ। একজন সাপোর্ট এজেন্ট শীঘ্রই আপনাকে উত্তর দেবেন।`}};
 const BN=/[\u0980-\u09FF]/;
 function analyze0(raw){
  const t=raw.toLowerCase(),flags=[],ent={};

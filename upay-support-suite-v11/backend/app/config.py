@@ -22,3 +22,20 @@ PIN_LOCK_MS = 60_000
 GUARDIAN_STATEMENT_ROWS = 15
 TZ_OFFSET_MIN = 360                          # Asia/Dhaka: day and month limits roll over at local midnight
 PIN_ITERATIONS = 200_000
+
+# referral: both wallets get the bonus when a new customer signs up with an existing customer's code (UP + last 9 digits of the number)
+REFERRAL_BONUS = Decimal("50")
+REFERRAL_MAX_PER_REFERRER = 10               # a customer is paid for at most this many friends
+
+# SMS one-time code (OTP) for sign-up and login. Production: set UPAY_REQUIRE_OTP=1 and UPAY_SMS_WEBHOOK to your SMS gateway.
+REQUIRE_OTP = os.getenv("UPAY_REQUIRE_OTP", "0") == "1"
+SMS_WEBHOOK = os.getenv("UPAY_SMS_WEBHOOK", "")        # POST {"to": "...", "text": "..."}; empty = SMS is only logged (demo)
+OTP_TTL_S = 300
+OTP_MAX_TRIES = 5
+OTP_RESEND_S = 30
+OTP_TOKEN_TTL_S = 600                        # how long the "phone verified" proof is accepted by register / login
+
+# Gemini (Google AI) for the agent's "draft a reply" button. Get a key in Google AI Studio and put it ONLY in the server environment.
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")           # empty = the feature is off
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_TIMEOUT_S = float(os.getenv("GEMINI_TIMEOUT_S", "15"))

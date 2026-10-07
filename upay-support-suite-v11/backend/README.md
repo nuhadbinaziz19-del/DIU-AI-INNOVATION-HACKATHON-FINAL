@@ -56,3 +56,15 @@ Test Postgres helper: `tests/pg_start.sh`.
 - `POST /api/freeze` `{pin}` freezes the caller's own wallet. It needs the PIN (wrong tries count and lock like payments), so a customer who has no PIN yet cannot use it. It records `frozen_by = "self"` and `frozen_at`. Freezing twice is harmless.
 - Only an admin can unfreeze: `POST /api/admin/freeze {uid, frozen:false}` (header `X-Admin-Key`). That clears `frozen_by`. A customer-side unfreeze does not exist on purpose, because without SMS OTP or eKYC the server cannot tell the owner from a thief who holds the phone.
 - Referral bonus is still not paid in backend mode: it needs a rule (who pays the 50, how many times, when).
+
+## Round 8 additions
+- Referral: `POST /api/auth/register` accepts `ref` (UP + 9 digits). Bonus `REFERRAL_BONUS` (50) to both wallets in the same DB transaction, max `REFERRAL_MAX_PER_REFERRER` (10) paid friends per customer. `GET /api/referral` returns code, friends paid, earned. The bonus is created from nothing (like demo add-money): in production fund it from a marketing account.
+- SMS code: `POST /api/auth/otp/send {phone,purpose: register|login}` and `/api/auth/otp/verify {phone,purpose,code}` -> `otp_token`. Only a keyed hash of the code is stored; 5 wrong tries lock it; one use; resend after 30 s. Set `UPAY_REQUIRE_OTP=1` and register/login then need the `otp_token` (login checks number + PIN first, then answers `otp_required`). `UPAY_SMS_WEBHOOK` receives `POST {"to","text"}`; without it the SMS is only logged. `demo_code` is returned only when `UPAY_DEMO_MODE=1`. Default `UPAY_REQUIRE_OTP=0`; `.env.example` turns it on.
+- `/config.js` now also sets `window.UPAY_DEMO` from `UPAY_DEMO_MODE`.
+- Simulated providers (`app/providers.py`): `/api/pay` with `service=recharge` (optional `operator`) or `service=bill` (optional `biller`); `GET /api/billers`, `GET /api/billers/{id}/lookup/{account}`. They raise `provider_failed` (HTTP 502) BEFORE any money moves. Replace the function bodies with real operator / biller API calls.
+- Tests: `tests/test_features.py` (19 tests). Total with the old ones: 64.
+
+## Gemini draft replies (agents)
+- Set `GEMINI_API_KEY` (from Google AI Studio; NOT the Cloud project ID) and optionally `GEMINI_MODEL` (default `gemini-2.5-flash`) in `backend/.env`. Empty key = feature off.
+- Admin console > Live chat > "Ask Gemini for a draft" calls `POST /api/admin/ai/draft` (admin key). PINs, OTPs, phone numbers and long digit strings are masked before the text leaves the server. The result only fills the reply box: an agent reads, edits and sends it. Nothing is stored, and the key never reaches the browser.
+- Needs the backend (not the browser-only demo). Tests: `tests/test_llm.py` (no network, fake transport).

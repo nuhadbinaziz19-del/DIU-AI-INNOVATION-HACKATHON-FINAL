@@ -3,6 +3,7 @@ Browser test against the REAL backend: settings must follow the customer to a ne
 Needs the backend running on :8000 (see backend/README.md; UPAY_DEMO_MODE=1 because it signs in with ?u=).
 Run:  python3 tests/test_backend_ui.py
 """
+import os
 import base64, random, struct, sys, zlib
 from playwright.sync_api import sync_playwright
 
@@ -78,7 +79,7 @@ def main(b):
 
 if __name__ == "__main__":
     with sync_playwright() as pw:
-        b = pw.chromium.launch(executable_path="/opt/pw-browsers/chromium", args=["--no-sandbox"])
+        b = pw.chromium.launch(args=["--no-sandbox"], **({"executable_path": os.environ["CHROMIUM"]} if os.environ.get("CHROMIUM") else {}))
         try:
             main(b)
             if ERRORS: raise AssertionError("page errors: " + "; ".join(ERRORS[:3]))

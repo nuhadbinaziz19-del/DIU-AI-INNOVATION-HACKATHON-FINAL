@@ -116,3 +116,18 @@ CREATE TABLE IF NOT EXISTS prefs (
 -- who froze a wallet: 'self' (customer, with PIN) or 'admin'. Only an admin can unfreeze.
 ALTER TABLE wallets ADD COLUMN IF NOT EXISTS frozen_by text   NOT NULL DEFAULT '';
 ALTER TABLE wallets ADD COLUMN IF NOT EXISTS frozen_at bigint NOT NULL DEFAULT 0;
+
+-- referral: who invited this customer (the bonus itself is two rows in txs, kind 'referral' and 'referral_new')
+ALTER TABLE wallets ADD COLUMN IF NOT EXISTS referred_by text;
+CREATE INDEX IF NOT EXISTS wallets_referred_by ON wallets(referred_by) WHERE referred_by IS NOT NULL;
+
+-- SMS one-time codes (only a keyed hash of the code is stored)
+CREATE TABLE IF NOT EXISTS otps (
+  phone      text   NOT NULL,
+  purpose    text   NOT NULL CHECK (purpose IN ('register','login')),
+  code_hash  text   NOT NULL,
+  expires_at bigint NOT NULL,
+  tries      int    NOT NULL DEFAULT 0,
+  sent_at    bigint NOT NULL,
+  PRIMARY KEY (phone, purpose)
+);

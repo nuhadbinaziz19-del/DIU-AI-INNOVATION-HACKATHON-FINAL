@@ -10,12 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from . import auth, config as C, docs, ledger as L, prefs
+from . import auth, config as C, docs, ledger as L, llm, prefs, providers, sms
 from .ledger import LedgerError
 
 log = logging.getLogger("upay")
 STATUS = {"unauthorized": 401, "not_found": 404, "forbidden": 403, "frozen": 403, "not_student": 403, "pin_wrong": 401, "pin_locked": 423,
-          "conflict": 409, "rate_limited": 429}
+          "conflict": 409, "rate_limited": 429, "otp_required": 401, "otp_invalid": 400, "otp_locked": 423, "provider_failed": 502, "ai_off": 503, "ai_failed": 502}
 
 
 class Pay(BaseModel):
@@ -24,6 +24,8 @@ class Pay(BaseModel):
     to_phone: str = ""
     bucket: Optional[str] = None
     pin: str = ""
+    operator: str = ""            # recharge: gp / bl / robi / tt (optional, otherwise taken from the number prefix)
+    biller: str = ""              # bill: id from GET /api/billers (optional; to_phone is then the account / meter number)
 
 
 class RegisterIn(BaseModel):
@@ -32,11 +34,30 @@ class RegisterIn(BaseModel):
     nid: str
     dob: str
     pin: str
+    ref: str = ""                 # friend's referral code (UP + 9 digits)
+    otp_token: str = ""           # from POST /api/auth/otp/verify (required when UPAY_REQUIRE_OTP=1)
 
 
 class LoginIn(BaseModel):
     phone: str
     pin: str
+    otp_token: str = ""
+
+
+class AiDraftIn(BaseModel):
+    text: str = Field(max_length=3000)
+    topic: str = Field(default="", max_length=100)
+
+
+class OtpSendIn(BaseModel):
+    phone: str
+    purpose: str
+
+
+class OtpVerifyIn(BaseModel):
+    phone: str
+    purpose: str
+    code: str
 
 
 class PinIn(BaseModel):
@@ -151,7 +172,7 @@ def create_app(db=None, start_scheduler: bool = True) -> FastAPI:
         if task:
             task.cancel()
 
-    app = FastAPI(title="upay API", version="1.0", lifespan=lifespan)
+    app = FastAPI(title="upay 2.0 API", version="1.0", lifespan=lifespan)
     app.state.db = db
     app.add_middleware(CORSMiddleware, allow_origins=C.CORS_ORIGINS, allow_methods=["*"],
                        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Admin-Key"])
@@ -190,16 +211,43 @@ def create_app(db=None, start_scheduler: bool = True) -> FastAPI:
         w = L.ensure_wallet(db, b.uid, b.name or ("Customer " + b.uid[-4:]), opening_balance=12500)
         return {"token": auth.issue_token(b.uid), "wallet": w}
 
+    def need_otp(phone: str, purpose: str, token: str) -> None:
+        if C.REQUIRE_OTP and not auth.otp_token_ok(token, phone.strip(), purpose):
+            raise LedgerError("otp_required", "Enter the code we sent to your phone")
+
+    @app.post("/api/auth/otp/send")
+    def otp_send(b: OtpSendIn):
+        lim.hit("otps:" + b.phone[:11], 5, 600)
+        code = L.create_otp(db, b.phone, b.purpose)
+        if code:
+            try:
+                sms.send(b.phone.strip(), f"Your upay 2.0 code is {code}. Never share it with anyone.")
+            except Exception:
+                log.exception("sms gateway error")
+                raise LedgerError("sms_failed", "Could not send the SMS, try again")
+        out = {"sent": True, "ttl_s": C.OTP_TTL_S}
+        if C.DEMO_MODE and code:
+            out["demo_code"] = code          # demo only: there is no SMS gateway, so the app shows the code on screen
+        return out
+
+    @app.post("/api/auth/otp/verify")
+    def otp_verify(b: OtpVerifyIn):
+        lim.hit("otpv:" + b.phone[:11], 10, 600)
+        L.verify_otp(db, b.phone, b.purpose, b.code)
+        return {"otp_token": auth.issue_otp_token(b.phone.strip(), b.purpose)}
+
     @app.post("/api/auth/register")
     def register(b: RegisterIn):
         lim.hit("reg:" + b.phone[:11], 5, 600)
-        w = L.register(db, b.name, b.phone, b.nid, b.dob, b.pin)
+        need_otp(b.phone, "register", b.otp_token)
+        w = L.register(db, b.name, b.phone, b.nid, b.dob, b.pin, ref=b.ref)
         return {"token": auth.issue_token(w["uid"]), "wallet": w}
 
     @app.post("/api/auth/login")
     def login(b: LoginIn):
         lim.hit("login:" + b.phone[:11], 10, 60)
-        w = L.login(db, b.phone, b.pin)
+        w = L.login(db, b.phone, b.pin)              # number + PIN first (wrong tries count and lock) ...
+        need_otp(b.phone, "login", b.otp_token)      # ... then the SMS code, when the server requires it
         return {"token": auth.issue_token(w["uid"]), "wallet": w}
 
     @app.get("/api/me")
@@ -241,14 +289,30 @@ def create_app(db=None, start_scheduler: bool = True) -> FastAPI:
         lim.hit("lookup:" + uid, 30, 60)                  # stops people scanning numbers to learn names
         w = L.find_by_phone(db, phone)
         if not w:
-            raise LedgerError("not_found", "Number not found on upay")
+            raise LedgerError("not_found", "Number not found on upay 2.0")
         return {"name": w["name"], "is_self": w["uid"] == uid}
 
     @app.post("/api/pay")
     def pay(b: Pay, uid: str = Depends(me), idempotency_key: str | None = Header(default=None)):
         lim.hit("pay:" + uid, 20, 60)
         return L.pay(db, uid, b.service, b.amount, to_phone=b.to_phone, bucket=b.bucket or None, pin=b.pin,
-                     idem_key=(idempotency_key or "")[:80] or None)
+                     idem_key=(idempotency_key or "")[:80] or None, operator=b.operator, biller=b.biller)
+
+    # ---------------- billers + recharge (SIMULATED providers, see providers.py)
+    @app.get("/api/billers")
+    def billers(uid: str = Depends(me)):
+        return {"simulated": True, "billers": [{"id": i, "category": c, "name": n} for i, c, n in providers.BILLERS],
+                "operators": [{"id": k, "name": v[0], "prefixes": list(v[1])} for k, v in providers.OPERATORS.items()],
+                "recharge_min": str(providers.RECHARGE_MIN), "recharge_max": str(providers.RECHARGE_MAX)}
+
+    @app.get("/api/billers/{biller_id}/lookup/{account}")
+    def biller_lookup(biller_id: str, account: str, uid: str = Depends(me)):
+        lim.hit("lookup:" + uid, 30, 60)
+        return providers.bill_lookup(biller_id, account)
+
+    @app.get("/api/referral")
+    def referral(uid: str = Depends(me)):
+        return L.referral_info(db, uid)
 
     @app.post("/api/undo/{tx_id}")
     def undo(tx_id: str, uid: str = Depends(me)):
@@ -442,6 +506,16 @@ def create_app(db=None, start_scheduler: bool = True) -> FastAPI:
     def a_run_rules(_: bool = Depends(admin)):
         return L.run_due_rules(db)
 
+    # ---------------- Gemini draft reply (agents only; the draft is never sent to the customer automatically)
+    @app.get("/api/admin/ai/status")
+    def ai_status(_: bool = Depends(admin)):
+        return {"enabled": llm.enabled(), "model": C.GEMINI_MODEL}
+
+    @app.post("/api/admin/ai/draft")
+    def ai_draft(b: AiDraftIn, _: bool = Depends(admin)):
+        lim.hit("ai", 30, 60)
+        return llm.draft_reply(b.text, b.topic)
+
     # ---------------- serve the web app from the same origin (no CORS needed): UPAY_STATIC_DIR, default ../upay-support-suite
     static = os.getenv("UPAY_STATIC_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "upay-support-suite"))
     if os.path.isdir(static):
@@ -450,7 +524,8 @@ def create_app(db=None, start_scheduler: bool = True) -> FastAPI:
 
         @app.get("/config.js")
         def web_config():                                  # tells the web app to use this server instead of browser storage
-            return Response('window.UPAY_API="";', media_type="application/javascript")
+            # UPAY_DEMO tells the app whether to show demo-only things (Demo tools, ?u= test users, the DEMO ribbon)
+            return Response('window.UPAY_API="";window.UPAY_DEMO=%s;' % ("true" if C.DEMO_MODE else "false"), media_type="application/javascript")
         app.mount("/", StaticFiles(directory=static, html=True), name="web")
 
     return app

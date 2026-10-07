@@ -268,7 +268,7 @@ def _saved_name(c, uid: str, phone: str) -> str:
 
 def _transfer(c, now: int, payer_uid: str, payee_uid: str | None, amount: Decimal, *, kind_out: str, kind_in: str,
               phone: str = "", fee: Decimal | None = None, bucket_from: str | None = None, bucket_to: str | None = None,
-              auto: bool = False, idem_key: str | None = None) -> dict:
+              auto: bool = False, idem_key: str | None = None, rname: str | None = None) -> dict:
     """Moves money payer -> payee (internal wallet) or payer -> outside (payee_uid None). One atomic unit."""
     ws = _lock(c, payer_uid, *([payee_uid] if payee_uid else []))
     me = ws.get(payer_uid)
@@ -280,7 +280,7 @@ def _transfer(c, now: int, payer_uid: str, payee_uid: str | None, amount: Decima
     total = amount + fee
     new_bal = _debit(c, me, total, bucket_from, now)
     trx = new_trx()
-    rname = ws[payee_uid]["name"] if payee_uid else _saved_name(c, payer_uid, phone)
+    rname = rname or (ws[payee_uid]["name"] if payee_uid else _saved_name(c, payer_uid, phone))
     out_id = _insert_tx(c, uid=payer_uid, kind=kind_out, amount=-total, fee=fee, balance_after=new_bal, ts=now,
                         counterparty_phone=phone or (ws[payee_uid]["phone"] if payee_uid else ""), counterparty_name=rname,
                         trx_id=trx, bucket=bucket_from or "", peer_uid=payee_uid, auto=auto, idem_key=idem_key)
@@ -316,7 +316,9 @@ def _with_idem(db, uid: str, idem_key: str | None, fn) -> dict:
 
 
 def pay(db, uid: str, service: str, amount: Any, *, to_phone: str = "", bucket: str | None = None,
-        pin: str | None = None, idem_key: str | None = None, now: int | None = None) -> dict:
+        pin: str | None = None, idem_key: str | None = None, now: int | None = None,
+        operator: str = "", biller: str = "") -> dict:
+    from . import providers                              # imported here: providers needs LedgerError from this module
     now = now or now_ms()
     if service not in SERVICES:
         raise LedgerError("bad_service", "Unknown service")
@@ -326,18 +328,23 @@ def pay(db, uid: str, service: str, amount: Any, *, to_phone: str = "", bucket: 
         if prior:
             return prior
     check_pin(db, uid, pin, now)
+    shown = None                                         # name of the outside party shown in history (operator / biller)
+    if service == "recharge":                            # the (simulated) operator must accept BEFORE we take the money
+        shown = providers.topup(to_phone, amount, operator)["operator"]
+    elif service == "bill" and biller:
+        shown = providers.pay_bill(biller, to_phone, amount)["biller"]
 
     def run(c):
         payee = None
         if service == "send":
             r = c.one("SELECT uid FROM wallets WHERE phone=%s", to_phone)
             if not r:
-                raise LedgerError("recipient_not_found", "This number is not on upay")
+                raise LedgerError("recipient_not_found", "This number is not on upay 2.0")
             if r["uid"] == uid:
                 raise LedgerError("self_send", "You cannot send to your own number")
             payee = r["uid"]
         return _transfer(c, now, uid, payee, amount, kind_out=service, kind_in="receive", phone=to_phone,
-                         bucket_from=bucket, idem_key=idem_key)
+                         bucket_from=bucket, idem_key=idem_key, rname=shown)
     return _with_idem(db, uid, idem_key, run)
 
 
@@ -668,8 +675,14 @@ def admin_delete_wallet(db, uid: str) -> None:
 
 
 # ------------------------------------------------------------------ sign-up / login (number + 4-digit PIN)
-def register(db, name: str, phone: str, nid: str, dob: str, pin: str, now: int | None = None) -> dict:
-    """New customer: name, mobile number, NID, birth date, 4-digit PIN. The NID is stored only as a keyed hash + last 4 digits."""
+def referral_code(phone: str) -> str:
+    return "UP" + phone[2:]
+
+
+def register(db, name: str, phone: str, nid: str, dob: str, pin: str, now: int | None = None, ref: str = "") -> dict:
+    """New customer: name, mobile number, NID, birth date, 4-digit PIN. The NID is stored only as a keyed hash + last 4 digits.
+    `ref` (optional) is a friend's referral code: UP + last 9 digits of their number. When valid, the friend and the new customer each
+    get REFERRAL_BONUS (a friend is paid for at most REFERRAL_MAX_PER_REFERRER sign-ups; sign-up still works after that, without a bonus)."""
     now = now or now_ms()
     name, phone, nid = (name or "").strip(), (phone or "").strip(), (nid or "").strip()
     if not 2 <= len(name) <= 80:
@@ -685,15 +698,106 @@ def register(db, name: str, phone: str, nid: str, dob: str, pin: str, now: int |
     if d > datetime.now(timezone.utc).date() or d.year < 1900:
         raise LedgerError("bad_request", "Enter a valid birth date")
     _valid_pin(pin)
+    ref = (ref or "").strip().upper()
+    if ref and not (len(ref) == 11 and ref.startswith("UP") and ref[2:].isdigit()):
+        raise LedgerError("bad_referral", "Referral code looks wrong (UP + 9 digits)")
+    ref_phone = "01" + ref[2:] if ref else ""
     uid, salt = "u" + secrets.token_hex(8), secrets.token_hex(16)
     nid_hash = hmac.new(C.SECRET_KEY.encode(), nid.encode(), hashlib.sha256).hexdigest()
     try:
         with db.tx() as c:
-            c.run("INSERT INTO wallets (uid,name,phone,balance,created_at,pin_hash,pin_salt,nid_hash,nid_last4,dob) "
-                  "VALUES (%s,%s,%s,0,%s,%s,%s,%s,%s,%s)", uid, name, phone, now, _hash_pin(pin, salt), salt, nid_hash, nid[-4:], dob)
-            return public_wallet(c.one("SELECT * FROM wallets WHERE uid=%s", uid))
+            friend = None
+            if ref_phone:
+                friend = c.one("SELECT uid, name, phone FROM wallets WHERE phone=%s", ref_phone)
+                if not friend or friend["phone"] == phone:
+                    raise LedgerError("bad_referral", "Referral code not found")
+            c.run("INSERT INTO wallets (uid,name,phone,balance,created_at,pin_hash,pin_salt,nid_hash,nid_last4,dob,referred_by) "
+                  "VALUES (%s,%s,%s,0,%s,%s,%s,%s,%s,%s,%s)", uid, name, phone, now, _hash_pin(pin, salt), salt, nid_hash, nid[-4:], dob,
+                  friend["uid"] if friend else None)
+            bonus = Decimal("0.00")
+            if friend:
+                paid = c.one("SELECT COUNT(*) AS n FROM txs WHERE uid=%s AND kind='referral'", friend["uid"])["n"]
+                if paid < C.REFERRAL_MAX_PER_REFERRER:
+                    bonus = C.REFERRAL_BONUS
+                    _lock(c, uid, friend["uid"])
+                    trx = new_trx()
+                    fb = _credit(c, friend["uid"], bonus)
+                    _insert_tx(c, uid=friend["uid"], kind="referral", amount=bonus, balance_after=fb, ts=now, trx_id=trx,
+                               counterparty_phone=phone, counterparty_name=name, peer_uid=uid)
+                    nb = _credit(c, uid, bonus)
+                    _insert_tx(c, uid=uid, kind="referral_new", amount=bonus, balance_after=nb, ts=now, trx_id=trx,
+                               counterparty_phone=friend["phone"], counterparty_name=friend["name"], peer_uid=friend["uid"])
+            w = public_wallet(c.one("SELECT * FROM wallets WHERE uid=%s", uid))
+            w["referral_bonus"] = str(bonus)
+            return w
     except IntegrityError:
         raise LedgerError("conflict", "An account with this number or NID already exists")
+
+
+def referral_info(db, uid: str) -> dict:
+    with db.tx() as c:
+        w = c.one("SELECT phone FROM wallets WHERE uid=%s", uid)
+        if not w:
+            raise LedgerError("not_found", "Wallet not found")
+        n = c.one("SELECT COUNT(*) AS n FROM txs WHERE uid=%s AND kind='referral'", uid)["n"]
+        e = c.one("SELECT COALESCE(SUM(amount),0) AS s FROM txs WHERE uid=%s AND kind='referral'", uid)["s"]
+        return {"code": referral_code(w["phone"]), "bonus": str(C.REFERRAL_BONUS), "friends_paid": n, "max": C.REFERRAL_MAX_PER_REFERRER, "earned": str(e)}
+
+
+# ------------------------------------------------------------------ SMS one-time code (OTP)
+def _otp_hash(phone: str, purpose: str, code: str) -> str:
+    return hmac.new(C.SECRET_KEY.encode(), f"otp|{phone}|{purpose}|{code}".encode(), hashlib.sha256).hexdigest()
+
+
+def _otp_check_args(phone: str, purpose: str) -> tuple[str, str]:
+    phone = (phone or "").strip()
+    if not (len(phone) == 11 and phone.isdigit() and phone.startswith("01")):
+        raise LedgerError("bad_request", "Enter an 11-digit mobile number")
+    if purpose not in ("register", "login"):
+        raise LedgerError("bad_request", "Unknown purpose")
+    return phone, purpose
+
+
+def create_otp(db, phone: str, purpose: str, now: int | None = None) -> str | None:
+    """Makes and stores a 6-digit code (only its keyed hash is kept). Returns the code to send by SMS, or None when nothing should be sent
+    (login for a number that has no account: the caller answers exactly like a real send, so numbers cannot be probed)."""
+    now = now or now_ms()
+    phone, purpose = _otp_check_args(phone, purpose)
+    with db.tx() as c:
+        exists = c.one("SELECT 1 AS x FROM wallets WHERE phone=%s", phone)
+        if purpose == "register" and exists:
+            raise LedgerError("conflict", "An account with this number already exists")
+        if purpose == "login" and not exists:
+            return None
+        row = c.one("SELECT sent_at FROM otps WHERE phone=%s AND purpose=%s FOR UPDATE", phone, purpose)
+        if row and now - row["sent_at"] < C.OTP_RESEND_S * 1000:
+            raise LedgerError("rate_limited", "Wait a little before asking for another code", retry_after_ms=C.OTP_RESEND_S * 1000 - (now - row["sent_at"]))
+        code = f"{secrets.randbelow(10**6):06d}"
+        c.run("INSERT INTO otps (phone,purpose,code_hash,expires_at,tries,sent_at) VALUES (%s,%s,%s,%s,0,%s) "
+              "ON CONFLICT (phone,purpose) DO UPDATE SET code_hash=EXCLUDED.code_hash, expires_at=EXCLUDED.expires_at, tries=0, sent_at=EXCLUDED.sent_at",
+              phone, purpose, _otp_hash(phone, purpose, code), now + C.OTP_TTL_S * 1000, now)
+        return code
+
+
+def verify_otp(db, phone: str, purpose: str, code: str, now: int | None = None) -> bool:
+    """True when the code is right. Wrong tries are committed BEFORE raising (like the PIN), so the code cannot be brute-forced."""
+    now = now or now_ms()
+    phone, purpose = _otp_check_args(phone, purpose)
+    err: LedgerError | None = None
+    with db.tx() as c:
+        row = c.one("SELECT * FROM otps WHERE phone=%s AND purpose=%s FOR UPDATE", phone, purpose)
+        if not row or row["expires_at"] < now:
+            err = LedgerError("otp_invalid", "The code is wrong or has expired")
+        elif row["tries"] >= C.OTP_MAX_TRIES:
+            err = LedgerError("otp_locked", "Too many wrong codes, ask for a new one")
+        elif not isinstance(code, str) or not hmac.compare_digest(_otp_hash(phone, purpose, code.strip()), row["code_hash"]):
+            c.run("UPDATE otps SET tries = tries + 1 WHERE phone=%s AND purpose=%s", phone, purpose)
+            err = LedgerError("otp_invalid", "The code is wrong or has expired", attempts_left=C.OTP_MAX_TRIES - row["tries"] - 1)
+        else:
+            c.run("DELETE FROM otps WHERE phone=%s AND purpose=%s", phone, purpose)     # one use only
+    if err:
+        raise err
+    return True
 
 
 def login(db, phone: str, pin: str, now: int | None = None) -> dict:

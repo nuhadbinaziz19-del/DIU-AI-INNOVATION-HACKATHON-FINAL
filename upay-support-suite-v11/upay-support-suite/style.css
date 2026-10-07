@@ -203,3 +203,30 @@ body.admin nav{flex-wrap:wrap}body.admin .wrap{padding-bottom:30px}
 
 .remc{display:flex;align-items:center;gap:8px;margin:8px 16px;padding:10px 12px;border-radius:12px;background:#fff3c4;color:#5a4300}.remc.late{background:#ffe3e3;color:#8a1f1f}.remc .g{flex:1}.remc small{display:block}
 .ahint{font-size:13px;opacity:.75;margin:14px 0 0;text-align:center}
+
+/* ---- round 8: OTP screen, demo ribbon, recharge / biller pages, admin analytics ---- */
+.demoTag{display:inline-block;margin-top:8px;padding:3px 10px;border-radius:12px;background:#d23a3a;color:#fff;font-size:11px;font-weight:700;letter-spacing:.03em}
+.lead2{margin:0 0 8px;color:var(--mute);font-size:14px}
+.sms{background:#e8f1ff;color:#102a54;border-radius:14px;padding:12px 14px;margin:6px 0 4px;font-size:15px;line-height:1.45;border-left:4px solid #2b7be0}
+.sms small{display:block;opacity:.7;font-size:12px;margin-bottom:2px}.sms .sdemo{margin:6px 0 0;font-style:italic}
+.sms b{font-size:20px;letter-spacing:.14em}
+.otpin{text-align:center;font-size:24px;letter-spacing:.35em}
+.dnote{background:#fff3c4;color:#5a4300;border-radius:10px;padding:8px 12px;font-size:13px;margin:8px 0}
+.opch{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+.bdue{background:var(--soft,#eef2f8);border-radius:12px;padding:10px 14px;margin:10px 0;font-size:14px}
+.bdue b{font-size:18px}
+.rcode2{font-size:13px;color:var(--mute);margin:8px 0}
+.demoBar{background:#d23a3a;color:#fff;font-size:11px;font-weight:600;text-align:center;padding:3px 8px;letter-spacing:.02em}
+body.admin .ctl{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+body.admin .ctl .btn{margin:0}
+body.admin .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+body.admin .seg button{border:0;background:var(--card);color:var(--ink);padding:7px 14px;font:inherit;cursor:pointer}
+body.admin .seg button[aria-selected=true]{background:var(--b);color:#fff}
+body.admin .ks{display:block;color:var(--mute);font-size:12px;margin-top:2px}
+body.admin .ar2{margin:10px 0}body.admin .ar2 .l{display:flex;justify-content:space-between;gap:10px}body.admin .ar2 .l span{color:var(--mute);font-size:13px}body.admin .ar2 small{color:var(--mute)}
+.dv{display:flex;align-items:flex-end;gap:3px;height:140px;margin:12px 0 2px;border-bottom:1px solid var(--line)}
+.dv>div{flex:1;display:flex;flex-direction:column-reverse;height:100%;min-width:3px}
+.dv i{display:block;width:100%}
+.c1{background:var(--b)}.c2{background:var(--y)}.c3{background:var(--bad)}
+.dvl{display:flex;gap:3px;font-size:11px;color:var(--mute);overflow:hidden}.dvl span{flex:1;min-width:3px;white-space:nowrap;overflow:visible}
+.lg{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 4px 0 12px}.lg:first-child{margin-left:0}

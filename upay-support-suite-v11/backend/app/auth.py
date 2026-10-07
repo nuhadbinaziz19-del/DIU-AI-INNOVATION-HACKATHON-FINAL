@@ -37,3 +37,20 @@ def read_token(token: str, now: float | None = None) -> str | None:
 
 def admin_ok(key: str | None) -> bool:
     return bool(key) and hmac.compare_digest(key, C.ADMIN_KEY)
+
+
+def issue_otp_token(phone: str, purpose: str, now: float | None = None) -> str:
+    """Proof that `phone` received and typed the SMS code for `purpose` ('register' or 'login'). Has no uid, so it can never act as a login token."""
+    body = _b64(json.dumps({"ph": phone, "pu": purpose, "exp": int((now or time.time()) + C.OTP_TOKEN_TTL_S)}, separators=(",", ":")).encode())
+    return body + "." + _sig(body)
+
+
+def otp_token_ok(token: str | None, phone: str, purpose: str, now: float | None = None) -> bool:
+    try:
+        body, sig = (token or "").split(".", 1)
+        if not hmac.compare_digest(sig, _sig(body)):
+            return False
+        d = json.loads(_unb64(body))
+        return d.get("ph") == phone and d.get("pu") == purpose and d["exp"] >= (now or time.time())
+    except Exception:
+        return False

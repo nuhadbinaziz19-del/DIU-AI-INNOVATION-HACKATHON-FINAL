@@ -3,8 +3,8 @@
 function initAdmin(){
   const root=$('#root');
   const ST={auto_sent:['Auto-replied','ok'],needs_review:['Needs review','warn'],escalated:['Escalated','bad'],agent_sent:['Sent by agent','info']};
-  const TABS=[['chat','Live chat'],['mail','Emails'],['comp','Complaints'],['cus','Customers'],['txn','Transactions'],['faq','My FAQ'],['pol','Reply policies'],['stu','Student accounts'],['ann','Announcement']];
-  let tab='chat',sel=null,W=[],T=[],C=[],M=[],X=[],selM=null,selX=null,faqs=[],note='',modal=null,msg='',amsg='',cols,cfg,fqd,stuDoc,AR=[],selA=null,stu=null;const ui={};
+  const TABS=[['ana','Analytics'],['chat','Live chat'],['mail','Emails'],['comp','Complaints'],['cus','Customers'],['txn','Transactions'],['faq','My FAQ'],['pol','Reply policies'],['stu','Student accounts'],['ann','Announcement']];
+  let tab='ana',sel=null,W=[],T=[],C=[],M=[],X=[],selM=null,selX=null,faqs=[],note='',modal=null,msg='',amsg='',cols,cfg,fqd,stuDoc,AR=[],selA=null,stu=null;const ui={};
   const uv=(k,d)=>ui[k]===undefined?d:ui[k];
   const stuCfg=()=>({...STU_DEF,...(stu||{}),req:{...STU_DEF.req,...((stu&&stu.req)||{})}});
   const pn=()=>AR.filter(x=>x.status==='pending').length;
@@ -21,6 +21,7 @@ function initAdmin(){
       <textarea id="rp" data-k="reply" rows="4">${esc(ui.reply||'')}</textarea>
       <button class="btn" data-a="send">Send reply</button>
       ${c.draft&&c.status!=='auto_sent'&&c.status!=='agent_sent'?'<button class="btn alt" data-a="draft">Use AI draft</button>':''}
+      <button class="btn alt" data-a="gem" ${API.on?'':'disabled title="Needs the backend (UPAY_API)"'}>${ui.gemBusy?'Asking Gemini…':'✨ Ask Gemini for a draft'}</button><p class="lead" role="status" style="margin:6px 0 0">${esc(ui.gemMsg||'')}</p>
       ${c.status==='needs_review'&&a?`<button class="btn alt" data-a="esc">Escalate to ${esc(a.team)}</button>`:''}</div>`
       :'<div class="card"><p class="lead">Select a conversation.</p></div>';
     const an=c&&a?`<div class="card"><h3>AI analysis</h3><p><span class="tag ${a.pri==='urgent'?'bad':a.pri==='high'?'warn':'info'}">${esc(a.pri)} priority</span><span class="tag ${st(c.status)[1]}">${st(c.status)[0]}</span></p>
@@ -31,6 +32,37 @@ function initAdmin(){
       <p class="lead" style="margin:12px 0 4px">Audit trail</p><ul class="why">${(c.audit||[]).map(x=>`<li><span>${esc(x)}</span></li>`).join('')}</ul></div>`:'<div class="card"></div>';
     return `<div class="cols">${list}${thr}${an}</div>`;
   }
+  /* ---------- Analytics: volumes, response / resolution times, AI intent breakdown. "Sample data" shows the dashboard with fake numbers. ---------- */
+  function anaData(){const sample=uv('anaSample',false),days=uv('anaDays',30),now=Date.now();
+    return{sample,days,r:anaCompute(sample?anaSample(now):{C,M,X},{now,days,en})}}
+  function vAna(){
+    const {sample,days,r}=anaData(),tk=(l,v,s)=>`<div class="kpi"><b>${v}</b><span>${l}</span>${s?`<small class="ks">${s}</small>`:''}</div>`;
+    const rows=(L,key,max,extra)=>L.length?L.map(o=>`<div class="ar2"><div class="l"><b>${esc(o.label)}</b><span>${o.n} · ${anaPct(o.n,key)}%</span></div><div class="bar"><i style="width:${max?o.n/max*100:0}%"></i></div>${extra?`<small>${extra(o)}</small>`:''}</div>`).join(''):'<p class="lead">Nothing in this period.</p>';
+    const mx=Math.max(1,...r.daily.map(d=>d.chat+d.email+d.complaint)),n=r.daily.length;
+    const bars=r.daily.map((d,i)=>`<div title="${esc(d.label)}: ${d.chat} chats, ${d.email} emails, ${d.complaint} complaints"><i class="c3" style="height:${d.complaint/mx*100}%"></i><i class="c2" style="height:${d.email/mx*100}%"></i><i class="c1" style="height:${d.chat/mx*100}%"></i></div>`).join('');
+    const lab=r.daily.map((d,i)=>`<span>${i===0||i===n-1||i%Math.ceil(n/6)===0?esc(d.label):''}</span>`).join('');
+    const tm=(k,name)=>{const f=r.firstResp[k],s=r.resolve[k];return `<tr><td><b>${name}</b></td><td>${f.n}</td><td>${anaDur(f.avg)}</td><td>${anaDur(f.med)}</td><td>${s?s.n:'–'}</td><td>${s?anaDur(s.avg):'–'}</td><td>${s?anaDur(s.med):'–'}</td></tr>`};
+    const tot=r.total,chatN=r.byChannel.chat,tickN=r.byChannel.email+r.byChannel.complaint;
+    return `<div class="card"><div class="ctl"><h3 style="margin:0">Support analytics</h3>
+      <span class="seg">${[7,30].map(d=>`<button data-a="anarange" data-v="${d}" aria-selected="${days===d}">Last ${d} days</button>`).join('')}</span>
+      <button class="btn alt" data-a="anasample">${sample?'Show my real data':'Show sample data'}</button><button class="btn alt" data-a="anacsv">Download CSV</button></div>
+      ${sample?'<div class="note">SAMPLE DATA. These numbers are generated in your browser to show what the dashboard looks like. They are not real customers and nothing is saved.</div>':''}
+      <p class="lead" style="margin:8px 0 0">${tot?`${tot} requests in the last ${days} days.`:'No requests in this period yet. Use the customer app (chat, email, complaint), or press “Show sample data”.'}</p></div>
+    <div class="kpis">${[tk('Requests',tot,`${chatN} chats · ${r.byChannel.email} emails · ${r.byChannel.complaint} complaints`),tk('Waiting for a person',r.waitingChats+r.openTickets,`${r.waitingChats} chats · ${r.openTickets} emails/complaints`),
+      tk('AI auto-reply rate',r.autoRate+'%',`${r.autoChats} of ${chatN} chats`),tk('Resolved (email + complaint)',r.resolvedRate+'%',`${r.resolvedTickets} of ${tickN}`),
+      tk('Median first response',anaDur(r.firstResp.all.med),`${r.firstResp.all.n} answered`),tk('Median time to resolve',anaDur(r.resolve.all.med),r.resolve.all.n?`${r.resolve.all.n} resolved`:'needs resolved items')].join('')}</div>
+    <div class="card"><h3>Requests per day</h3><div class="dv">${bars}</div><div class="dvl">${lab}</div><p class="lead" style="margin:6px 0 0"><span class="lg c1"></span>Chats <span class="lg c2"></span>Emails <span class="lg c3"></span>Complaints</p></div>
+    <div class="cols2"><div class="card"><h3>What customers ask about (AI topics)</h3><p class="lead">Share of chats by detected topic, and how many the assistant answered by itself.</p>${rows(r.intents,chatN,Math.max(1,...r.intents.map(o=>o.n)),o=>`Auto-replied ${anaPct(o.auto,o.n)}% · average confidence ${Math.round(o.conf*100)}%`)}</div>
+      <div class="card"><h3>Complaint categories</h3>${rows(r.cats,r.byChannel.complaint,Math.max(1,...r.cats.map(o=>o.n)))}<p style="margin:10px 0 0"><span class="tag bad">${r.pri.urgent} urgent</span><span class="tag warn">${r.pri.high} high</span><span class="tag info">${r.pri.normal} normal</span></p></div></div>
+    <div class="card"><h3>Response and resolution time</h3><div style="overflow:auto"><table><thead><tr><th>Channel</th><th>Answered</th><th>First reply (avg)</th><th>First reply (median)</th><th>Resolved</th><th>Resolve (avg)</th><th>Resolve (median)</th></tr></thead><tbody>${tm('chat','Live chat').replace(/<td>–<\/td><td>–<\/td><td>–<\/td><\/tr>$/,'<td colspan="3" style="color:var(--mute)">chats are answered, not resolved</td></tr>')}${tm('email','Emails')}${tm('complaint','Complaints')}</tbody></table></div><p class="lead" style="margin:8px 0 0">Resolve time starts counting when you press “Mark resolved”. Items resolved before this update have no time recorded.</p></div>
+    <div class="cols2"><div class="card"><h3>Team workload</h3>${rows(r.teams,r.teams.reduce((a,o)=>a+o.n,0),Math.max(1,...r.teams.map(o=>o.n)))}</div>
+      <div class="card"><h3>Chat language and safety</h3>${rows(r.langs,chatN,Math.max(1,...r.langs.map(o=>o.n)))}<p style="margin:10px 0 0"><span class="tag ${r.flags?'bad':'ok'}">${r.flags} chats</span> where the customer typed a PIN or OTP (masked before storing)</p></div></div>`;
+  }
+  function anaCsv(){const {r,days,sample}=anaData(),q=v=>'"'+String(v).replace(/"/g,'""')+'"',L=[['section','item','value']];
+    L.push(['summary','period_days',days],['summary','sample_data',sample],['summary','requests',r.total],['summary','chats',r.byChannel.chat],['summary','emails',r.byChannel.email],['summary','complaints',r.byChannel.complaint],
+     ['summary','ai_auto_reply_rate_pct',r.autoRate],['summary','resolved_rate_pct',r.resolvedRate],['summary','median_first_response',anaDur(r.firstResp.all.med)],['summary','median_time_to_resolve',anaDur(r.resolve.all.med)]);
+    r.intents.forEach(o=>L.push(['topic',o.label,o.n]));r.cats.forEach(o=>L.push(['complaint_category',o.label,o.n]));r.teams.forEach(o=>L.push(['team',o.label,o.n]));r.daily.forEach(d=>L.push(['day '+d.k,'chat/email/complaint',d.chat+'/'+d.email+'/'+d.complaint]));
+    const b=new Blob(['\ufeff'+L.map(x=>x.map(q).join(',')).join('\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='upay-support-analytics-'+new Date().toISOString().slice(0,10)+'.csv';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
   function vReq(k){
     const isC=k==='comp',L=(isC?X:M).slice().sort((a,b)=>b.ts-a.ts),cur=isC?selX:selM,r=L.find(x=>x.id===cur)||L[0];
     const SS={new:['New','warn'],open:['In progress','info'],resolved:['Resolved','ok']};
@@ -55,7 +87,7 @@ function initAdmin(){
     <label class="chk"><input type="checkbox" data-k="fauto" ${ui.fauto===false?'':'checked'}> Send automatically</label>
     <button class="btn" data-a="fadd">Save question</button><p class="lead" role="status" style="margin-top:8px">${esc(msg)}</p></div>
     <div class="card"><h3>Saved questions</h3>${faqs.length?faqs.map((f,i)=>`<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px"><span class="tag ${f.auto?'ok':'warn'}">${f.auto?'Auto-reply':'Agent review'}</span><b>${esc(f.q)}</b><div style="color:var(--mute);font-size:13.5px;margin-top:4px">${esc(f.a.slice(0,110))}</div><button class="btn alt" style="margin-left:0" data-a="fdel" data-id="${i}">Delete</button></div>`).join(''):'<p class="lead">No saved questions yet.</p>'}</div></div>`;
-  const vPol=()=>`<div class="card"><h3>Reply policies</h3><p class="lead">Each topic has an approved reply and a rule for who sends it. Replace the sample texts with upay-approved wording in the KB object of app.js.</p><table><thead><tr><th>Topic</th><th>Who replies</th><th>Route</th><th>Sample reply (English)</th></tr></thead><tbody>${Object.values(KB).map(k=>`<tr><td><b>${esc(k.label)}</b></td><td>${k.esc?'Specialist team':k.auto?'Assistant':'Agent approves'}</td><td>${esc(k.team)}</td><td>${esc(k.en({}))}</td></tr>`).join('')}</tbody></table><div class="note">Safety rules apply to every message: never ask for a PIN or OTP, mask phone numbers and secret codes, send fraud reports to the fraud team, and never promise a refund the system cannot guarantee.</div></div>`;
+  const vPol=()=>`<div class="card"><h3>Reply policies</h3><p class="lead">Each topic has an approved reply and a rule for who sends it. Replace the sample texts with upay 2.0-approved wording in the KB object of app.js.</p><table><thead><tr><th>Topic</th><th>Who replies</th><th>Route</th><th>Sample reply (English)</th></tr></thead><tbody>${Object.values(KB).map(k=>`<tr><td><b>${esc(k.label)}</b></td><td>${k.esc?'Specialist team':k.auto?'Assistant':'Agent approves'}</td><td>${esc(k.team)}</td><td>${esc(k.en({}))}</td></tr>`).join('')}</tbody></table><div class="note">Safety rules apply to every message: never ask for a PIN or OTP, mask phone numbers and secret codes, send fraud reports to the fraud team, and never promise a refund the system cannot guarantee.</div></div>`;
   const vAnn=()=>`<div class="card"><h3>Announcement</h3><p class="lead">Shown as a banner on every customer's home page.${note?' Current: <b>'+esc(note)+'</b>':''}</p><input data-k="ann" value="${esc(ui.ann||'')}" placeholder="e.g. Service paused tonight at 12:00"><button class="btn" data-a="sn">Publish</button><button class="btn alt" data-a="cn">Clear</button><p class="lead" role="status" style="margin-top:8px">${esc(msg)}</p></div>`;
 
   function vStu(){
@@ -89,10 +121,10 @@ function initAdmin(){
 
   function render(){
     const ae=document.activeElement,aid=ae&&ae.dataset&&ae.dataset.k,n=s=>C.filter(c=>c.status===s).length,tot=W.reduce((x,w)=>x+(w.balance||0),0);
-    let h=`<header><div class="logo">u</div><div><h1 style="font-size:24px;margin:0">upay Admin Console</h1><p>Live chat, AI-assisted replies, customers and transactions in one place.</p></div><span class="tag info" style="margin-left:auto">Demo · local data</span></header>
+    let h=`<header><div class="logo">u</div><div><h1 style="font-size:24px;margin:0">upay 2.0 Admin Console</h1><p>Live chat, AI-assisted replies, customers and transactions in one place.</p></div><span class="tag info" style="margin-left:auto">Demo · local data</span></header>
     <div class="kpis">${[['Chats',C.length],['Auto-replied',n('auto_sent')],['Needs review',n('needs_review')],['Escalated',n('escalated')],['New emails',nw(M)],['New complaints',nw(X)],['Student requests',pn()],['Customers',W.length],['Total balance',money(tot)]].map(([l,v])=>`<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join('')}</div>
     <nav>${TABS.map(([i,l])=>`<button data-a="tab" data-v="${i}" aria-selected="${tab===i}">${l}${i==='mail'&&nw(M)?' ('+nw(M)+')':i==='comp'&&nw(X)?' ('+nw(X)+')':i==='stu'&&pn()?' ('+pn()+')':''}</button>`).join('')}</nav>`;
-    h+=({chat:vChat,mail:()=>vReq('mail'),comp:()=>vReq('comp'),cus:vCus,txn:vTxn,faq:vFaq,pol:vPol,stu:vStu,ann:vAnn})[tab]();if(modal)h+=vModal();
+    h+=({ana:vAna,chat:vChat,mail:()=>vReq('mail'),comp:()=>vReq('comp'),cus:vCus,txn:vTxn,faq:vFaq,pol:vPol,stu:vStu,ann:vAnn})[tab]();if(modal)h+=vModal();
     root.innerHTML=h;
     if(aid){const e=root.querySelector(`[data-k="${aid}"]`);if(e){e.focus();try{e.setSelectionRange(e.value.length,e.value.length)}catch(_){}}}
     const t=root.querySelector('.thr');if(t)t.scrollTop=t.scrollHeight;
@@ -104,13 +136,20 @@ function initAdmin(){
       if(a==='tab'){tab=b.dataset.v;msg='';amsg='';render()}
       else if(a==='sel'){sel=id;ui.reply='';const c=chatOf(id);if(c&&c.unreadAdmin)await cols.chats.doc(id).update({unreadAdmin:0});render()}
       else if(a==='draft'){ui.reply=chatOf(sel).draft;render()}
+      else if(a==='gem'){const c=chatOf(sel),last=c&&[...c.msgs].reverse().find(m=>m.f==='cu');if(!last||ui.gemBusy)return;ui.gemBusy=true;ui.gemMsg='';render();
+        try{const r=await API.post('/api/admin/ai/draft',{text:last.t,topic:(c.a&&c.a.policy)||''});ui.reply=r.draft;ui.gemMsg='Draft from '+r.model+'. Read it, edit it, then send. It was not sent to the customer.'}
+        catch(e){ui.gemMsg=e.code==='ai_off'?'Gemini is not set up on the server (GEMINI_API_KEY).':e.message||'Gemini failed.'}
+        ui.gemBusy=false;render()}
       else if(a==='send'){const c=chatOf(sel),t=(ui.reply||'').trim();if(!c||!t)return;ui.reply='';
         await cols.chats.doc(sel).update({msgs:[...c.msgs,{f:'ag',t,ts:Date.now()}],status:'agent_sent',last:Date.now(),unreadCust:(c.unreadCust||0)+1,audit:[...(c.audit||[]),'Agent approved reply '+ts()]})}
       else if(a==='esc'){const c=chatOf(sel);await cols.chats.doc(sel).update({status:'escalated',audit:[...(c.audit||[]),'Escalated to '+c.a.team+' '+ts()]})}
       else if(a==='rsel'){if(b.dataset.v==='comp')selX=id;else selM=id;ui.rreply='';render()}
       else if(a==='rsend'){const t=(ui.rreply||'').trim();if(!t)return;const c=b.dataset.v==='comp',r=(c?X:M).find(x=>x.id===id);if(!r)return;ui.rreply='';
         await (c?cols.complaints:cols.emails).doc(id).update({replies:[...(r.replies||[]),{t,ts:Date.now()}],status:r.status==='resolved'?'resolved':'open',unreadCust:(r.unreadCust||0)+1})}
-      else if(a==='rst'){await (b.dataset.v==='comp'?cols.complaints:cols.emails).doc(id).update({status:b.dataset.s})}
+      else if(a==='rst'){await (b.dataset.v==='comp'?cols.complaints:cols.emails).doc(id).update({status:b.dataset.s,...(b.dataset.s==='resolved'?{resolvedAt:Date.now()}:{})})}
+      else if(a==='anarange'){ui.anaDays=+b.dataset.v;render()}
+      else if(a==='anasample'){ui.anaSample=!uv('anaSample',false);render()}
+      else if(a==='anacsv'){anaCsv()}
       else if(a==='frz'){const w=W.find(x=>x.id===id);await cols.wallets.doc(id).update({frozen:!w.frozen,frozenBy:w.frozen?'':'admin'})}
       else if(a==='adj'||a==='del'){modal={type:a,id};ui.adjv='';render()}
       else if(a==='mno'){modal=null;render()}

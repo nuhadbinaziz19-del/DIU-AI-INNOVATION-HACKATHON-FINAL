@@ -1,7 +1,7 @@
 /* customer.js - wallet app: payments, PIN, limits, student plan, guardian, split, support chat */
 /* ---------- Customer app ---------- */
 function initCustomer(){
-  let pendRef='',balance=12500,shown=false,plan={buckets:[],rules:[],saved:[]},hq='',curAcct='personal',curVerified=false;
+  let pendRef='',pendX={},balance=12500,shown=false,plan={buckets:[],rules:[],saved:[]},hq='',curAcct='personal',curVerified=false;
   let tx=[
    {t:'ক্যাশ ইন',d:'আজ, ১০:৩০',a:5000,k:'in'},
    {t:'মোবাইল রিচার্জ',d:'গতকাল, ৮:১৫',a:-249,k:'out'},
@@ -73,7 +73,7 @@ function initCustomer(){
   const feeOf=(t,a)=>t==='ক্যাশ আউট'?Math.round(a*0.0185*(isStu()?0.8:1)*100)/100:0;
   const trx=()=>'UP'+Date.now().toString(36).toUpperCase()+Math.random().toString(36).slice(2,4).toUpperCase();
   const nameOf=p=>((plan.saved||[]).find(s=>s.phone===p)||{}).name||'';
-  const moneyForm=(title,sign,label,ph)=>{const rf0=pendRef;pendRef='';const out=sign<0,bk=isStu()&&out?plan.buckets:[],snd=title==='সেন্ড মানি';let step=0,rw=null;const idem=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():String(Date.now())+Math.random();
+  const moneyForm=(title,sign,label,ph)=>{const rf0=pendRef,X0=pendX;pendRef='';pendX={};const out=sign<0,bk=isStu()&&out?plan.buckets:[],snd=title==='সেন্ড মানি';let step=0,rw=null;const idem=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():String(Date.now())+Math.random();
    open(`<h3>${title}</h3><input id="f1" inputmode="numeric" placeholder="${ph}"><input id="f2" inputmode="numeric" placeholder="টাকার পরিমাণ">${bk.length?`<select id="f3"><option value="">${L('খালি ব্যালেন্স','Free balance')} (${money(freeBal())})</option>${bk.map((b,i)=>`<option value="${i}">${esc(b.n)} (${money(b.amt)})</option>`).join('')}</select>`:''}${out?'<small id="fee"></small>':''}<button class="btn" id="ok">নিশ্চিত করুন</button><button class="btn alt" id="no">বাতিল</button>`);
    const pf=()=>{const e=$('#fee');if(!e)return;const a=parseInt($('#f2').value)||0,f=feeOf(title,a);
     e.textContent=title==='ক্যাশ আউট'?L('চার্জ: ','Fee: ')+money(f)+(isStu()?L(' (স্টুডেন্ট ২০% ছাড় সহ)',' (incl. 20% student discount)'):''):snd?L('চার্জ: ৳ ০ (ফ্রি)','Fee: ৳ 0 (free)'):''};
@@ -82,20 +82,25 @@ function initCustomer(){
    $('#ok').onclick=async()=>{const p=$('#f1').value.trim(),a=parseInt($('#f2').value);
     if(!p&&out){toast('নম্বর দিন');return}
     if(!a||a<=0){toast('সঠিক পরিমাণ দিন');return}
+    if(title==='মোবাইল রিচার্জ'){/* the server checks the same things again; here the customer gets the message before the PIN */
+     if(!/^01\d{9}$/.test(p)){toast(L('১১ সংখ্যার মোবাইল নম্বর দিন','Enter an 11-digit mobile number'));return}
+     if(a<RECHARGE.min||a>RECHARGE.max){toast(L('রিচার্জ ৳১০ থেকে ৳১০০০ এর মধ্যে হতে হবে','Recharge must be between ৳10 and ৳1,000'));return}
+     if(!API.on&&p.endsWith(FAIL_SUFFIX)){toast(L('অপারেটর এখন রিচার্জ নিতে পারছে না, টাকা কাটা হয়নি','The operator could not accept this recharge. You were not charged'));return}}
+    if(title==='পে বিল'&&X0.biller&&!API.on&&p.endsWith('0000000')){toast(L('বিলার এখন পেমেন্ট নিতে পারছে না, টাকা কাটা হয়নি','The biller could not accept this payment. You were not charged'));return}
     if(API.on){/* backend mode: the SERVER computes the fee, checks balance, limits, PIN and student status */
      if(!out){if(title==='অ্যাড মানি'){try{await API.post('/api/demo/add-money',{amount:a})}catch(e){toast(apiMsg(e));return}close();await API.kick();toast(L(title+' সফল হয়েছে ✓',tr(title)+' successful ✓'))}
       else toast(L(title+' শিগগিরই আসছে',tr(title)+' is coming soon'));return}
      if(snd&&step===0){let nm=null;try{const r=await API.get('/api/lookup/'+encodeURIComponent(p));if(r.is_self){toast(L('নিজের নম্বরে পাঠানো যাবে না','You cannot send to your own number'));return}nm=r.name}catch(e){if(e.code!=='not_found'){toast(apiMsg(e));return}}
-      step=1;$('#fee').innerHTML=nm?L('প্রাপক: ','Recipient: ')+'<b>'+esc(nm)+'</b> ('+esc(p)+')':'⚠️ '+L('এই নম্বর upay-তে পাওয়া যায়নি। নম্বর ঠিক আছে তো?','Number not found on upay. Is it correct?');
+      step=1;$('#fee').innerHTML=nm?L('প্রাপক: ','Recipient: ')+'<b>'+esc(nm)+'</b> ('+esc(p)+')':'⚠️ '+L('এই নম্বর upay 2.0-তে পাওয়া যায়নি। নম্বর ঠিক আছে তো?','Number not found on upay 2.0. Is it correct?');
       $('#ok').textContent=L('হ্যাঁ, পাঠান','Yes, send');return}
      const si0=$('#f3')?$('#f3').value:'',bname=si0!==''&&plan.buckets[si0]?plan.buckets[si0].n:null;
-     const r=await askPinDo(tr(title)+' · '+money(a),pin=>API.post('/api/pay',{service:SERVICE_OF[title],amount:a,to_phone:p,bucket:bname,pin},{'Idempotency-Key':idem}));
+     const r=await askPinDo(tr(title)+' · '+money(a),pin=>API.post('/api/pay',{service:SERVICE_OF[title],amount:a,to_phone:p,bucket:bname,pin,operator:X0.op||'',biller:X0.biller||''},{'Idempotency-Key':idem}));
      if(!r)return;close();await API.kick();toast(L(title+' সফল হয়েছে ✓',tr(title)+' successful ✓'));
      if(snd){undo={id:r.tx_id,until:Date.now()+12e4};showUndo()}return}
     if(snd&&step===0){rw=await findW(p);if(rw&&rw.id===uid){toast(L('নিজের নম্বরে পাঠানো যাবে না','You cannot send to your own number'));return}
-     step=1;$('#fee').innerHTML=rw?L('প্রাপক: ','Recipient: ')+'<b>'+esc(rw.name)+'</b> ('+esc(p)+')':'⚠️ '+L('এই নম্বর upay-তে পাওয়া যায়নি। নম্বর ঠিক আছে তো?','Number not found on upay. Is it correct?');
+     step=1;$('#fee').innerHTML=rw?L('প্রাপক: ','Recipient: ')+'<b>'+esc(rw.name)+'</b> ('+esc(p)+')':'⚠️ '+L('এই নম্বর upay 2.0-তে পাওয়া যায়নি। নম্বর ঠিক আছে তো?','Number not found on upay 2.0. Is it correct?');
      $('#ok').textContent=L('হ্যাঁ, পাঠান','Yes, send');return}
-    const fee=out?feeOf(title,a):0,tot=a+fee,si=$('#f3')?$('#f3').value:'',pl=JSON.parse(JSON.stringify(plan)),m={amt:a,fee,ph:p,rn:out?(rw?rw.name:nameOf(p)):'',trx:trx(),ref:rf0};
+    const fee=out?feeOf(title,a):0,tot=a+fee,si=$('#f3')?$('#f3').value:'',pl=JSON.parse(JSON.stringify(plan)),m={amt:a,fee,ph:p,rn:out?(X0.name||(rw?rw.name:nameOf(p))):'',trx:trx(),ref:rf0};
     if(out){if(si!==''){if(tot>pl.buckets[si].amt){toast('ব্যালেন্স পর্যাপ্ত নয়');return}pl.buckets[si].amt-=tot;m.src=pl.buckets[si].n;m.plan=pl}
      else if(tot>freeBal()){toast('ব্যালেন্স পর্যাপ্ত নয়');return}}
     if(out){const le=limitErr(tot);if(le){toast(le);return}if(!(await askPin(tr(title)+' · '+money(tot))))return}
@@ -111,13 +116,13 @@ function initCustomer(){
    'রিকোয়েস্ট মানি':()=>moneyForm('রিকোয়েস্ট মানি',1,'in','যার কাছে চাইবেন তার নম্বর'),'বিল স্প্লিট':()=>window.splitForm&&window.splitForm()};
   $$('.it').forEach(b=>b.onclick=()=>{const n=b.dataset.s;(forms[n]||(()=>toast(L(n+' শিগগিরই আসছে',tr(n)+' is coming soon'))))()});
   $$('[data-act]').forEach(b=>b.onclick=()=>forms[b.dataset.act==='Add Money'?'অ্যাড মানি':'ক্যাশ আউট']());
-  /* ---------- screens that follow the real upay app: Send Money, Cash Out, Pay Bill, Account + profile photo ---------- */
+  /* ---------- screens that follow the real upay 2.0 app: Send Money, Cash Out, Pay Bill, Account + profile photo ---------- */
   const pgx=$('#pgx'),pgT=$('#pgT'),pgB=$('#pgB');
   const pgOpen=(t,h)=>{pgT.textContent=t;pgB.innerHTML=h;pgx.classList.add('on');pgB.scrollTop=0};
   const pgClose=()=>pgx.classList.remove('on');$('#pgBack').onclick=pgClose;
   const PB=()=>L('বর্তমান ব্যালেন্স: ','Current balance: ')+money(balance);
   /* hand over to the existing payment flow (fee, limits, PIN, backend) with the values already filled */
-  const runForm=(title,ph,amt,ref)=>{pgClose();pendRef=ref||'';moneyForm(title,-1,'out','');$('#f1').value=ph;$('#f2').value=amt;$('#ok').click()};
+  const runForm=(title,ph,amt,ref,x)=>{pgClose();pendRef=ref||'';pendX=x||{};moneyForm(title,-1,'out','');$('#f1').value=ph;$('#f2').value=amt;$('#ok').click()};
   /* settings that follow the customer to a new phone: favourites, photo, reminders, saved billers.
      Demo mode: browser storage only. Backend mode: the server copy wins; this phone keeps a mirror so the app also opens offline. */
   const PREF={favs:{k:()=>'upay_fav_'+uid},photo:{k:()=>'upay_photo_'+uid,raw:1},reminders:{k:()=>'upay_reminders_'+uid},billers:{k:()=>'upay_billers_'+uid}};
@@ -183,35 +188,89 @@ function initCustomer(){
    $('#catm').onclick=()=>toast(L('এটিএম ক্যাশ আউট শিগগিরই আসছে','ATM cash out is coming soon'));$('#cqr').onclick=()=>$('#qrBtn').click();
    $('#cgo').onclick=()=>{const p=$('#cq').value.trim(),a=parseInt($('#ca').value)||0;if(!/^01\d{9}$/.test(p)){toast(L('এজেন্টের ১১ সংখ্যার নম্বর দিন','Enter the 11-digit agent number'));return}if(!a){toast(L('সঠিক পরিমাণ দিন','Enter a valid amount'));return}runForm('ক্যাশ আউট',p,a)}}
 
-  /* Pay Bill: saved accounts + bill type list */
+  /* Mobile recharge: number -> operator (guessed from the prefix, the customer can change it for ported numbers) -> amount.
+     The operator is SIMULATED in this demo (the server, or the browser demo, pretends to top up). */
+  function rechargePage(){
+   pgOpen(L('মোবাইল রিচার্জ','Mobile recharge'),`<p class="mute">${PB()}</p>${DEMO?`<div class="dnote">🧪 ${L('ডেমো: অপারেটর সিমুলেটেড, আসল রিচার্জ হবে না। ০০০০০ দিয়ে শেষ হওয়া নম্বরে ব্যর্থতা দেখানো হয়।','Demo: the operator is simulated, no real top-up is sent. A number ending in 00000 shows a failed top-up.')}</div>`:''}
+    <h4 class="pl">${L('মোবাইল নম্বর','Mobile number')}</h4><input id="rcP" class="sin" inputmode="numeric" maxlength="11" placeholder="01XXXXXXXXX">
+    <div class="opch" id="rcOps">${OPS.map(o=>`<button class="chip" data-op="${o.k}">${L(o.bn,o.en)}</button>`).join('')}</div><small id="rcHint" class="mute"></small>
+    <h4 class="pl">${L('পরিমাণ','Amount')}</h4><div class="opch" id="rcQ">${RECHARGE.quick.map(a=>`<button class="chip" data-a="${a}">${money(a)}</button>`).join('')}</div>
+    <input id="rcA" class="sin" inputmode="numeric" maxlength="4" placeholder="${L('টাকা','Amount')} (${RECHARGE.min}–${RECHARGE.max})">
+    <button class="btn" id="rcGo">${L('রিচার্জ করুন','Recharge')}</button>`);
+   let op='',manual=false;
+   const paint=()=>{$$('#rcOps .chip').forEach(b=>b.classList.toggle('on',b.dataset.op===op));
+    const g=opOf($('#rcP').value);$('#rcHint').textContent=op?(g&&!manual?L('অপারেটর নম্বরের শুরু দেখে ঠিক করা হয়েছে। পোর্ট করা হলে অন্যটি বেছে নিন।','Operator guessed from the number prefix. Tap another one if the number was ported.'):L('আপনার বেছে নেওয়া অপারেটর ব্যবহার হবে।','Your chosen operator will be used.')):''};
+   $('#rcP').oninput=e=>{e.target.value=e.target.value.replace(/\D/g,'');if(!manual){const g=opOf(e.target.value);op=g?g.k:''}paint()};
+   $('#rcOps').onclick=e=>{const b=e.target.closest('[data-op]');if(!b)return;op=b.dataset.op;manual=true;paint()};
+   $('#rcQ').onclick=e=>{const b=e.target.closest('[data-a]');if(b)$('#rcA').value=b.dataset.a};
+   $('#rcA').oninput=e=>{e.target.value=e.target.value.replace(/\D/g,'')};
+   $('#rcGo').onclick=()=>{const p=$('#rcP').value.trim(),a=parseInt($('#rcA').value)||0;
+    if(!/^01\d{9}$/.test(p)){toast(L('১১ সংখ্যার মোবাইল নম্বর দিন','Enter an 11-digit mobile number'));return}
+    if(!op){toast(L('অপারেটর বেছে নিন','Choose the operator'));return}
+    if(a<RECHARGE.min||a>RECHARGE.max){toast(L('রিচার্জ ৳১০ থেকে ৳১০০০ এর মধ্যে হতে হবে','Recharge must be between ৳10 and ৳1,000'));return}
+    const o=OPS.find(x=>x.k===op);runForm('মোবাইল রিচার্জ',p,a,'',{op,name:o.en})}}
+
+  /* Pay Bill: category -> biller (SAMPLE directory, billers.js) -> account / meter number -> optional "check bill" -> pay.
+     Types that have no directory (credit card, bank, EMI, vehicle) keep the old free-text form. */
   function billPage(){
-   const T=[['বিদ্যুৎ','Electricity','🔌'],['পানি','Water','🚰'],['গ্যাস','Gas','🔥'],['ইন্টারনেট','Internet','🌐'],['ক্যাবল টিভি','Cable TV','📡'],['ক্রেডিট কার্ড','Credit card','💳'],['ব্যাংক/আর্থিক প্রতিষ্ঠান','Bank / financial institution','🏦'],['EMI পেমেন্ট','EMI payment','📅'],['গাড়ি','Vehicle','🚗']];
-   pgOpen(L('পে বিল','Pay Bill'),`<button class="saved" id="bsv">${L('সংরক্ষিত অ্যাকাউন্ট','Saved accounts')}</button><button class="saved" id="bsb">${L('সংরক্ষিত বিলার','Saved billers')}</button><h4 class="pl">${L('বিলের প্রকার নির্বাচন করুন','Select bill type')}</h4><div class="card">${T.map((t,i)=>`<div class="row" data-i="${i}"><span class="mi">${t[2]}</span><div class="g">${L(t[0],t[1])}</div></div>`).join('')}</div>`);
-   const go=(ph,nm)=>{pgClose();moneyForm('পে বিল',-1,'out','');if(nm)$('#f1').placeholder=nm;if(ph)$('#f1').value=ph};
-   $$('#pgB .row').forEach(r=>r.onclick=()=>{const t=T[r.dataset.i];go('',L(t[0],t[1])+' · '+L('বিলার/অ্যাকাউন্ট নম্বর','biller / account number'))});
-   $('#bsb').onclick=()=>billerSheet(T,go);
+   const T=[['ক্রেডিট কার্ড','Credit card','💳'],['ব্যাংক/আর্থিক প্রতিষ্ঠান','Bank / financial institution','🏦'],['EMI পেমেন্ট','EMI payment','📅'],['গাড়ি','Vehicle','🚗']];
+   const SV=[...BILLER_CATS.map(c=>[c.bn,c.en,c.i]),...T];
+   pgOpen(L('পে বিল','Pay Bill'),`<button class="saved" id="bsv">${L('সংরক্ষিত অ্যাকাউন্ট','Saved accounts')}</button><button class="saved" id="bsb">${L('সংরক্ষিত বিলার','Saved billers')}</button>
+    ${DEMO?`<div class="dnote">🧪 ${L('ডেমো: বিলার তালিকা নমুনা, বিল সিমুলেটেড।','Demo: the biller list is a sample and bills are simulated.')}</div>`:''}
+    <h4 class="pl">${L('বিলের প্রকার নির্বাচন করুন','Select bill type')}</h4><div class="card">${BILLER_CATS.map(t=>`<div class="row" data-c="${t.k}"><span class="mi">${t.i}</span><div class="g">${L(t.bn,t.en)}<small>${BILLERS.filter(b=>b.c===t.k).length} ${L('বিলার','billers')}</small></div></div>`).join('')}
+    ${T.map((t,i)=>`<div class="row" data-i="${i}"><span class="mi">${t[2]}</span><div class="g">${L(t[0],t[1])}</div></div>`).join('')}</div>`);
+   const go=(ph,nm,sv)=>{if(sv&&sv.biller&&billerOf(sv.biller)){billerForm(billerOf(sv.biller),sv.account);return}pgClose();moneyForm('পে বিল',-1,'out','');if(nm)$('#f1').placeholder=nm;if(ph)$('#f1').value=ph};
+   $$('#pgB .row[data-c]').forEach(r=>r.onclick=()=>billerList(r.dataset.c));
+   $$('#pgB .row[data-i]').forEach(r=>r.onclick=()=>{const t=T[r.dataset.i];go('',L(t[0],t[1])+' · '+L('বিলার/অ্যাকাউন্ট নম্বর','biller / account number'))});
+   $('#bsb').onclick=()=>billerSheet(SV,go);
    $('#bsv').onclick=()=>{const sv=plan.saved||[];if(!sv.length){toast(L('কোনো সংরক্ষিত অ্যাকাউন্ট নেই','No saved accounts yet'));return}
     open(`<h3>${L('সংরক্ষিত অ্যাকাউন্ট','Saved accounts')}</h3>${sv.map((s,i)=>`<div class="row" data-i="${i}"><div class="g">${esc(s.name||s.phone)}<small>${esc(s.phone)}</small></div></div>`).join('')}`);
     $$('#panel .row').forEach(r=>r.onclick=()=>{close();go(sv[r.dataset.i].phone)})}}
+  function billerList(cat){const c=BILLER_CATS.find(x=>x.k===cat);
+   pgOpen(L(c.bn,c.en),`<input id="bq" class="sin" placeholder="${L('বিলার খুঁজুন','Search billers')}"><div class="card" id="bl"></div>`);
+   const paint=()=>{const q=$('#bq').value.trim().toLowerCase(),L2=BILLERS.filter(b=>b.c===cat&&(!q||(b.en+' '+b.bn).toLowerCase().includes(q)));
+    $('#bl').innerHTML=L2.length?L2.map(b=>`<div class="row" data-b="${b.id}"><div class="g">${L(b.bn,b.en)}</div><i class="chev">›</i></div>`).join(''):`<p class="mute" style="padding:12px">${L('পাওয়া যায়নি','Nothing found')}</p>`;
+    $$('#bl .row').forEach(r=>r.onclick=()=>billerForm(billerOf(r.dataset.b)))};
+   $('#bq').oninput=paint;paint()}
+  function billerForm(b,acct){
+   pgOpen(L(b.bn,b.en),`<p class="mute">${PB()}</p>${DEMO?`<div class="dnote">🧪 ${L('ডেমো: বিল সিমুলেটেড। ০০০০০০০ দিয়ে শেষ হওয়া অ্যাকাউন্টে ব্যর্থতা দেখানো হয়।','Demo: bills are simulated. An account ending in 0000000 shows a failed payment.')}</div>`:''}
+    <h4 class="pl">${L('অ্যাকাউন্ট / মিটার নম্বর','Account / meter number')}</h4><input id="bfA" class="sin" maxlength="20" autocomplete="off" placeholder="${L('৬ থেকে ২০ অক্ষর বা সংখ্যা','6 to 20 letters or digits')}" value="${esc(acct||'')}">
+    <button class="btn alt" id="bfC">${L('বিল দেখুন','Check bill')}</button><div id="bfR"></div>
+    <h4 class="pl">${L('পরিমাণ','Amount')}</h4><input id="bfM" class="sin" inputmode="numeric" maxlength="7" placeholder="${L('টাকা','Amount')}">
+    <label class="chk" style="display:block;margin:10px 0"><input type="checkbox" id="bfS"> ${L('এই বিলার সংরক্ষণ করুন','Save this biller')}</label>
+    <button class="btn" id="bfG">${L('বিল পরিশোধ করুন','Pay bill')}</button>`);
+   $('#bfM').oninput=e=>{e.target.value=e.target.value.replace(/\D/g,'')};
+   $('#bfC').onclick=async()=>{const a=$('#bfA').value.trim();if(!acctOk(a)){toast(L('৬ থেকে ২০ অক্ষর বা সংখ্যার নম্বর দিন','Enter 6 to 20 letters or digits'));return}
+    try{const r=API.on?await API.get('/api/billers/'+b.id+'/lookup/'+encodeURIComponent(a)):billLookupLocal(b.id,a);if(!r)throw 0;const due=Math.round(Number(r.due));
+     $('#bfR').innerHTML=`<div class="bdue">${esc(r.customer)}<br>${L('বকেয়া','Amount due')}: <b>${money(due)}</b> <small>(${L('নমুনা বিল','sample bill')})</small></div>`;$('#bfM').value=due}
+    catch(e){toast(e&&e.code?apiMsg(e):L('বিল পাওয়া যায়নি','Bill not found'))}};
+   $('#bfG').onclick=async()=>{const a=$('#bfA').value.trim(),m=parseInt($('#bfM').value)||0;
+    if(!acctOk(a)){toast(L('৬ থেকে ২০ অক্ষর বা সংখ্যার নম্বর দিন','Enter 6 to 20 letters or digits'));return}
+    if(m<=0){toast(L('সঠিক পরিমাণ দিন','Enter a valid amount'));return}
+    if($('#bfS').checked){const bl=prefGet('billers');if(!bl.some(x=>x.biller===b.id&&x.account===a))await prefSet('billers',[...bl,{id:'b'+Date.now().toString(36),type:L(b.bn,b.en),account:a,label:L(b.bn,b.en),biller:b.id}])}
+    runForm('পে বিল',a,m,'',{biller:b.id,name:b.en})}}
   $('#signRow').onclick=()=>window.authLogout&&authLogout();
 
   /* receipt: tap a transaction in History -> picture you can share */
-  function receipt(x){const c=document.createElement('canvas');c.width=600;c.height=790;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,600,790);g.fillStyle='#ffd600';g.fillRect(0,0,600,150);g.fillStyle='#111';g.font='bold 54px sans-serif';g.fillText('upay',40,88);g.font='24px sans-serif';g.fillText(L('লেনদেনের রসিদ','Transaction receipt'),40,126);
+  function receipt(x){const c=document.createElement('canvas');c.width=600;c.height=790;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,600,790);g.fillStyle='#ffd600';g.fillRect(0,0,600,150);g.fillStyle='#111';g.font='bold 54px sans-serif';g.fillText('upay 2.0',40,88);g.font='24px sans-serif';g.fillText(L('লেনদেনের রসিদ','Transaction receipt'),40,126);
    g.fillStyle=x.undone?'#d23a3a':'#0f7a5a';g.font='bold 30px sans-serif';g.fillText(x.undone?L('বাতিল','Cancelled'):'✓ '+L('সফল','Successful'),40,215);g.fillStyle='#111';g.font='bold 56px sans-serif';g.fillText(money(Math.abs(x.a)),40,285);
    [[L('ধরন','Type'),tr(x.t)],[x.k==='in'?L('প্রেরক','From'):L('প্রাপক','To'),((x.rn||'')+' '+(x.ph||'')).trim()||'-'],[L('তারিখ','Date'),x.ts?fdf(x.ts):tr(x.d)],[L('চার্জ','Fee'),money(x.fee||0)],[L('ট্রানজেকশন আইডি','Transaction ID'),x.trx||'-'],[L('রেফারেন্স','Reference'),x.ref||'-']].forEach((r,i)=>{const y=350+i*66;g.fillStyle='#777';g.font='22px sans-serif';g.fillText(r[0],40,y);g.fillStyle='#111';g.font='bold 26px sans-serif';g.fillText(String(r[1]).slice(0,34),40,y+32)});
    c.toBlob(b=>{const f=new File([b],'upay-receipt.png',{type:'image/png'}),u=URL.createObjectURL(b);open(`<h3>${L('রসিদ','Receipt')}</h3><img src="${u}" alt="receipt" style="width:100%;border-radius:12px;border:1px solid #ddd"><button class="btn" id="rsh">${L('শেয়ার করুন','Share')}</button><button class="btn alt" id="no">${L('বন্ধ করুন','Close')}</button>`);$('#no').onclick=close;
-    $('#rsh').onclick=async()=>{try{if(navigator.canShare&&navigator.canShare({files:[f]}))await navigator.share({files:[f],title:'upay'});else{const a=document.createElement('a');a.href=u;a.download='upay-receipt.png';document.body.appendChild(a);a.click();a.remove()}}catch(e){}}},'image/png')}
+    $('#rsh').onclick=async()=>{try{if(navigator.canShare&&navigator.canShare({files:[f]}))await navigator.share({files:[f],title:'upay 2.0'});else{const a=document.createElement('a');a.href=u;a.download='upay-receipt.png';document.body.appendChild(a);a.click();a.remove()}}catch(e){}}},'image/png')}
   $('#hlist').addEventListener('click',e=>{const r=e.target.closest('.row');if(!r)return;const x=hisList()[[...$('#hlist').children].indexOf(r)];if(x)receipt(x)});
 
   /* refer & earn: code = UP + your number; in browser demo mode both get 50 */
-  function referSheet(){const code='UP'+(myPh||'').slice(2),link=location.origin+location.pathname+'?ref='+code,bonus=!API.on,
-    txt=bonus?L('upay-তে আমার কোড '+code+' দিয়ে অ্যাকাউন্ট খুলুন, দুজনেই ৳৫০ পাব! ','Open a upay account with my code '+code+' and we both get ৳50! '):L('upay-তে অ্যাকাউন্ট খুলুন, আমার কোড '+code+' ','Open a upay account, my code '+code+' ');
-   open(`<h3>${L('রেফার করুন','Refer a friend')}</h3>${bonus?`<small>${L('বন্ধু আপনার কোড দিয়ে অ্যাকাউন্ট খুললে দুজনেই ৳৫০ পাবেন।','You and your friend each get ৳50 when they sign up with your code.')}</small>`:''}<div class="rcode">${code}</div><button class="btn" id="rsh">${L('শেয়ার করুন','Share')}</button><button class="btn alt" id="rcp">${L('কোড কপি করুন','Copy code')}</button><button class="btn alt" id="no">${L('বন্ধ করুন','Close')}</button>`);
+  function referSheet(){const code='UP'+(myPh||'').slice(2),link=location.origin+location.pathname+'?ref='+code,bonus=true,
+    txt=bonus?L('upay 2.0-তে আমার কোড '+code+' দিয়ে অ্যাকাউন্ট খুলুন, দুজনেই ৳৫০ পাব! ','Open a upay 2.0 account with my code '+code+' and we both get ৳50! '):L('upay 2.0-তে অ্যাকাউন্ট খুলুন, আমার কোড '+code+' ','Open a upay 2.0 account, my code '+code+' ');
+   open(`<h3>${L('রেফার করুন','Refer a friend')}</h3>${bonus?`<small>${L('বন্ধু আপনার কোড দিয়ে অ্যাকাউন্ট খুললে দুজনেই ৳৫০ পাবেন।','You and your friend each get ৳50 when they sign up with your code.')}</small>`:''}<div class="rcode">${code}</div><p class="rcode2" id="rstat"></p><button class="btn" id="rsh">${L('শেয়ার করুন','Share')}</button><button class="btn alt" id="rcp">${L('কোড কপি করুন','Copy code')}</button><button class="btn alt" id="no">${L('বন্ধ করুন','Close')}</button>`);
+   if(API.on)API.get('/api/referral').then(r=>{const e=$('#rstat');if(e)e.textContent=L('বন্ধু যোগ দিয়েছে: '+bn(r.friends_paid)+'/'+bn(r.max)+' · আয়: ৳'+bn(Math.round(Number(r.earned))),'Friends joined: '+r.friends_paid+' of '+r.max+' · Earned: ৳'+Math.round(Number(r.earned)))}).catch(()=>{});
    $('#no').onclick=close;$('#rcp').onclick=()=>{try{navigator.clipboard.writeText(code);toast(L('কপি হয়েছে ✓','Copied ✓'))}catch(e){toast(code)}};
-   $('#rsh').onclick=async()=>{try{if(navigator.share)await navigator.share({title:'upay',text:txt,url:link});else{await navigator.clipboard.writeText(txt+link);toast(L('লিংক কপি হয়েছে ✓','Link copied ✓'))}}catch(e){}}}
+   $('#rsh').onclick=async()=>{try{if(navigator.share)await navigator.share({title:'upay 2.0',text:txt,url:link});else{await navigator.clipboard.writeText(txt+link);toast(L('লিংক কপি হয়েছে ✓','Link copied ✓'))}}catch(e){}}}
   $('#supRow').insertAdjacentHTML('beforebegin',`<div class="row" id="refRow"><span class="mi">🎁</span><div class="g">${L('রেফার করুন','Refer a friend')}<small>${L('কোড শেয়ার করুন','Share your code')}</small></div><i class="chev">›</i></div>`);$('#refRow').onclick=referSheet;
   forms['রেফার & আর্ন']=referSheet;window.upayTour&&upayTour();
-  forms['সেন্ড মানি']=sendPage;forms['ক্যাশ আউট']=cashPage;forms['পে বিল']=billPage;
+  if(DEMO){const d=document.createElement('div');d.className='demoBar';d.textContent='🧪 DEMO · '+L('নমুনা ডেটা, আসল টাকা নয়','sample data, no real money');$('#app').insertAdjacentElement('afterbegin',d)}
+  setTimeout(()=>{if(window.UPAY_BONUS>0){toast(L('🎁 রেফার বোনাস ৳'+bn(window.UPAY_BONUS)+' যোগ হয়েছে','🎁 ৳'+window.UPAY_BONUS+' referral bonus added'));window.UPAY_BONUS=0}},1800);
+  forms['সেন্ড মানি']=sendPage;forms['ক্যাশ আউট']=cashPage;forms['পে বিল']=billPage;forms['মোবাইল রিচার্জ']=rechargePage;
 
   
   // QR
@@ -543,7 +602,7 @@ function initCustomer(){
       const n=[...bl,{id:'b'+Date.now().toString(36),type:L(t[0],t[1]),account:a,label:$('#bvL').value.trim()}];if(await prefSet('billers',n)){toast(L('সংরক্ষিত হয়েছে ✓','Saved ✓'));billerSheet(T,go)}};
     $$('#panel .row[data-p]').forEach(r=>r.onclick=e=>{const b=bl.find(x=>x.id===r.dataset.p);if(!b)return;
       if(e.target.dataset.x){prefSet('billers',bl.filter(x=>x.id!==b.id));billerSheet(T,go);return}
-      close();go(b.account,(b.label||b.type)+' · '+b.account)})}
+      close();go(b.account,(b.label||b.type)+' · '+b.account,b)})}
   /* ---------- monthly reminders: shown on Home from 2 days before the day until the customer taps Done. Only visible while the app is open (no push). ---------- */
   const remList=()=>prefGet('reminders');
   function remPaint(){const box=$('#remBox');if(!box||!uid)return;const lbl={late:L('সময় পার হয়েছে','Overdue'),today:L('আজ','Today'),soon:L('শিগগিরই','Soon')};
@@ -577,6 +636,7 @@ function initCustomer(){
 
   /* ---------- Demo tools: switch between test users and verify as student (demo only, remove for production) ---------- */
   function demoInit(){
+    if(!DEMO){const r=$('#demoRow');if(r)r.remove();return}
     const US=[['rahim','Rahim (student)'],['karim','Karim (friend)'],['abbu','Abbu (guardian)'],['nusrat','Nusrat (friend)']];
     $('#demoRow').onclick=()=>{
       open(`<h3>🧪 ${L('ডেমো টুলস','Demo tools')}</h3><small>${L('শুধু পরীক্ষার জন্য। আলাদা ট্যাবে খুলুন, একই ব্রাউজারের সব ট্যাব একই ডেটা দেখে।','For testing only. Open in a separate tab; all tabs of this browser share the data.')}</small>`
@@ -665,7 +725,7 @@ function initCustomer(){
     paintAcct();
   }
   
-  const mapTx=t=>({id:t.id,uid:t.uid,t:t.kind==='auto_send'?L('অটো সেন্ড মানি','Auto Send Money'):(KINDS[t.kind]||t.kind),a:Number(t.amount),fee:Number(t.fee),ts:t.ts,ph:t.counterparty_phone,rn:t.counterparty_name,trx:t.trx_id,src:t.bucket,undone:t.undone,bal:Number(t.balance_after),d:fdf(t.ts),k:Number(t.amount)>0?'in':'out'});
+  const mapTx=t=>({id:t.id,uid:t.uid,t:t.kind==='auto_send'?L('অটো সেন্ড মানি','Auto Send Money'):t.kind==='referral'?L('রেফার বোনাস','Referral bonus'):t.kind==='referral_new'?L('স্বাগত বোনাস','Welcome bonus'):(KINDS[t.kind]||t.kind),a:Number(t.amount),fee:Number(t.fee),ts:t.ts,ph:t.counterparty_phone,rn:t.counterparty_name,trx:t.trx_id,src:t.bucket,undone:t.undone,bal:Number(t.balance_after),d:fdf(t.ts),k:Number(t.amount)>0?'in':'out'});
   /* Backend mode: the page only DISPLAYS server state. Everything is refreshed from the API every few seconds and right after each action. */
   function applyApi(x){const w=x.w,first=!ready;
     meW={name:w.name,balance:Number(w.balance),frozen:w.frozen,acct:w.acct,studentOK:w.student_ok,phone:w.phone,pinH:w.has_pin?'1':'',gUid:w.guardian_uid||'',gStatus:w.guardian_status,gPhone:w.guardian_phone,gName:w.guardian_name,gSeen:w.guardian_seen_at,gSeenBy:w.guardian_seen_by,gSeenAck:w.guardian_seen_ack};
